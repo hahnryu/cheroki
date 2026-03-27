@@ -1,19 +1,18 @@
-"""텔레그램 봇 모듈 — 음성 전사 + AI 교정 플로우."""
+"""텔레그램 봇 모듈 — 음성 전사 + AI 일괄 교정 플로우."""
 
 from __future__ import annotations
 
 import asyncio
-import json
+import re
 import structlog
 from pathlib import Path
 from typing import Any
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update
 from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
-    CallbackQueryHandler,
     ConversationHandler,
     ContextTypes,
     filters,
@@ -24,12 +23,11 @@ from cheroki.storage import AUDIO_EXTENSIONS
 
 logger = structlog.get_logger()
 
-# 대화 상태
 REVIEWING = 1
 
 
 class CherokiBot:
-    """텔레그램 봇 — 음성 전사 + 교정 플로우."""
+    """텔레그램 봇 — 음성 전사 + 일괄 교정."""
 
     def __init__(self, config: dict[str, Any]) -> None:
         self.config = config
@@ -53,13 +51,11 @@ class CherokiBot:
             await update.message.reply_text("접근 권한이 없습니다.")
             return
         await update.message.reply_text(
-            "안녕하세요! Cheroki 전사 봇입니다.\n"
-            "음성 파일을 보내주시면 전사 + AI 교정까지 진행합니다.\n\n"
-            "명령어:\n"
-            "/start — 인사\n"
+            "Cheroki 전사 봇입니다.\n"
+            "음성 파일을 보내면 전사 + AI 교정까지 진행합니다.\n\n"
             "/help — 도움말\n"
-            "/status — 상태 확인\n"
-            "/skip — 교정 건너뛰기"
+            "/status — 상태\n"
+            "/done — 교정 종료"
         )
 
     async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -67,11 +63,13 @@ class CherokiBot:
             return
         await update.message.reply_text(
             "사용법:\n"
-            "1. 음성 파일을 보내세요\n"
-            "2. 전사 완료 후 AI가 의심 구간을 질문합니다\n"
-            "3. 교정 답변을 보내거나, 맞으면 '확인' 버튼을 누르세요\n"
-            "4. /skip 으로 나머지 교정을 건너뛸 수 있습니다\n"
-            "5. 교정 완료 후 최종본이 생성됩니다\n\n"
+            "1. 음성 파일 전송 → 전사\n"
+            "2. AI가 의심 구간을 한꺼번에 보여줍니다\n"
+            "3. 번호와 교정을 보내세요\n"
+            '   예: "1 예금이자는, 3 맞아, 5 XXX"\n'
+            '   "확인" → AI 제안 전부 수락\n'
+            "4. 남은 항목 계속 질문\n"
+            "5. /done → 교정 종료 + 최종본 생성\n\n"
             "지원 형식: " + ", ".join(sorted(AUDIO_EXTENSIONS))
         )
 
@@ -92,7 +90,7 @@ class CherokiBot:
     # ── 전사 + 교정 플로우 ──────────────────────────────
 
     async def handle_audio(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int | None:
-        """음성 파일 수신 → 전사 → AI 리뷰 시작."""
+        """음성 파일 수신 → 전사 → AI 리뷰."""
         if not update.effective_user or not update.message:
             return None
         if not self._is_allowed(update.effective_user.id):
@@ -116,7 +114,7 @@ class CherokiBot:
             result = await self._download_and_transcribe(file_obj, message, context)
         except Exception as e:
             logger.error("telegram_transcription_error", error=str(e))
-            await message.reply_text(f"전사 중 오류가 발생했습니다: {e}")
+            await message.reply_text(f"전사 중 오류: {e}")
             return None
 
         tr = result["result"]
@@ -129,8 +127,7 @@ class CherokiBot:
         header = (
             f"전사 완료 (ID: {file_id})\n"
             f"세그먼트: {len(tr.segments)}개 | "
-            f"길이: {duration_min}분 {duration_sec}초\n\n"
-            f"--- 결과 ---"
+            f"길이: {duration_min}분 {duration_sec}초\n\n--- 결과 ---"
         )
         if len(header) + len(text) + 2 > 3800:
             await message.reply_text(header)
@@ -142,178 +139,141 @@ class CherokiBot:
         # AI 교정 제안
         claude_key = self.config.get("claude_api", {}).get("api_key", "")
         if not claude_key:
-            await message.reply_text(
-                "교정 완료. (AI 교정을 사용하려면 config.yaml에 claude_api.api_key를 설정하세요)"
-            )
+            await message.reply_text("전사 완료. (AI 교정: config.yaml에 claude_api.api_key 설정 필요)")
             return None
 
         await message.reply_text("AI가 교정 제안을 준비 중...")
 
         suggestions = await self._get_ai_suggestions(tr, file_id)
-
         if not suggestions:
-            await message.reply_text("AI 검토 결과 교정할 항목이 없습니다. 전사 품질 양호!")
+            await message.reply_text("AI 검토 결과 교정할 항목 없음. 전사 품질 양호!")
             return None
 
-        # 교정 세션 시작
-        context.user_data["review_file_id"] = file_id
-        context.user_data["review_result"] = tr
-        context.user_data["suggestions"] = suggestions
-        context.user_data["current_suggestion"] = 0
-        context.user_data["corrections"] = []
+        # 교정 세션 저장
+        context.user_data["file_id"] = file_id
+        context.user_data["result"] = tr
+        context.user_data["suggestions"] = {i + 1: s for i, s in enumerate(suggestions)}
+        context.user_data["corrections"] = {}  # {seg_index: corrected_text}
 
-        await message.reply_text(f"의심 구간 {len(suggestions)}개 발견. 교정을 시작합니다.\n/skip 으로 건너뛸 수 있습니다.\n")
-        await self._send_suggestion(message, context)
+        await self._send_suggestions(message, context)
         return REVIEWING
 
-    async def _get_ai_suggestions(self, tr: Any, file_id: str) -> list[Any]:
-        """AI 교정 제안을 받는다."""
-        from cheroki.ai_reviewer import suggest_corrections_ai
+    async def _send_suggestions(self, message: Any, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """미해결 의심 구간을 한꺼번에 보여준다."""
+        suggestions = context.user_data.get("suggestions", {})
+        corrections = context.user_data.get("corrections", {})
 
-        segments = []
-        for i, seg in enumerate(tr.segments):
-            segments.append({
-                "index": i,
-                "start": seg.start,
-                "end": seg.end,
-                "text": seg.text.strip(),
-            })
+        # 아직 교정 안 된 항목
+        pending = {k: s for k, s in suggestions.items() if s.segment_index not in corrections}
 
-        claude_key = self.config.get("claude_api", {}).get("api_key", "")
-        loop = asyncio.get_event_loop()
-        suggestions = await loop.run_in_executor(
-            None,
-            lambda: suggest_corrections_ai(segments, claude_key),
-        )
-        return suggestions
-
-    async def _send_suggestion(self, message: Any, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """현재 교정 제안을 보낸다."""
-        suggestions = context.user_data.get("suggestions", [])
-        idx = context.user_data.get("current_suggestion", 0)
-
-        if idx >= len(suggestions):
-            await self._finish_review(message, context)
+        if not pending:
+            await message.reply_text("모든 항목이 교정되었습니다! /done 으로 최종본을 생성하세요.")
             return
 
-        s = suggestions[idx]
-        keyboard = [
-            [
-                InlineKeyboardButton("✅ AI 제안 수락", callback_data="accept"),
-                InlineKeyboardButton("⏭ 건너뛰기", callback_data="skip_one"),
-            ],
-            [
-                InlineKeyboardButton("❌ 원본 유지", callback_data="keep"),
-            ],
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
+        lines = [f"의심 구간 {len(pending)}개:\n"]
+        for num, s in pending.items():
+            if s.suggested:
+                lines.append(f"  {num}. [{s.timestamp}] \"{s.original}\" → \"{s.suggested}\"")
+                lines.append(f"      ({s.reason})")
+            else:
+                lines.append(f"  {num}. [{s.timestamp}] \"{s.original}\"")
+                lines.append(f"      ({s.reason})")
 
-        await message.reply_text(
-            f"[{idx + 1}/{len(suggestions)}] [{s.timestamp}]\n\n"
-            f"현재: {s.original}\n"
-            f"제안: {s.suggested}\n"
-            f"사유: {s.reason}\n\n"
-            f"직접 교정하려면 텍스트를 입력하세요.",
-            reply_markup=reply_markup,
-        )
+        lines.append("")
+        lines.append("교정 방법:")
+        lines.append('  번호 교정내용 (예: "1 예금이자는")')
+        lines.append('  "확인" → AI 제안 전부 수락')
+        lines.append('  /done → 교정 종료 + 최종본 생성')
 
-    async def handle_review_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """교정 버튼 콜백."""
-        query = update.callback_query
-        if not query:
-            return REVIEWING
-        await query.answer()
-
-        suggestions = context.user_data.get("suggestions", [])
-        idx = context.user_data.get("current_suggestion", 0)
-
-        if idx >= len(suggestions):
-            if query.message:
-                await self._finish_review(query.message, context)
-            return ConversationHandler.END
-
-        s = suggestions[idx]
-        action = query.data
-
-        if action == "accept":
-            context.user_data["corrections"].append({
-                "segment_index": s.segment_index,
-                "corrected_text": s.suggested,
-            })
-            await query.edit_message_text(f"✅ [{s.timestamp}] {s.original} → {s.suggested}")
-        elif action == "keep":
-            await query.edit_message_text(f"⏸ [{s.timestamp}] 원본 유지: {s.original}")
-        elif action == "skip_one":
-            await query.edit_message_text(f"⏭ [{s.timestamp}] 건너뜀")
-
-        context.user_data["current_suggestion"] = idx + 1
-        if query.message:
-            await self._send_suggestion(query.message, context)
-
-        if context.user_data["current_suggestion"] >= len(suggestions):
-            return ConversationHandler.END
-        return REVIEWING
+        text = "\n".join(lines)
+        for chunk in _split_text(text, 3800):
+            await message.reply_text(chunk)
 
     async def handle_review_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """사용자가 직접 교정 텍스트를 입력."""
+        """사용자 교정 답변 처리."""
         if not update.message or not update.message.text:
             return REVIEWING
 
-        suggestions = context.user_data.get("suggestions", [])
-        idx = context.user_data.get("current_suggestion", 0)
+        text = update.message.text.strip()
+        suggestions = context.user_data.get("suggestions", {})
+        corrections = context.user_data.get("corrections", {})
 
-        if idx >= len(suggestions):
-            await self._finish_review(update.message, context)
-            return ConversationHandler.END
+        # "확인" → AI 제안 전부 수락
+        if text in ("확인", "ㅇㅋ", "ok", "OK"):
+            accepted = 0
+            for num, s in suggestions.items():
+                if s.segment_index not in corrections and s.suggested:
+                    corrections[s.segment_index] = s.suggested
+                    accepted += 1
+            await update.message.reply_text(f"AI 제안 {accepted}개 일괄 수락.")
+            await self._send_suggestions(update.message, context)
+            if not any(s.segment_index not in corrections for s in suggestions.values()):
+                await self._finish_review(update.message, context)
+                return ConversationHandler.END
+            return REVIEWING
 
-        s = suggestions[idx]
-        user_text = update.message.text.strip()
+        # 번호 + 교정 파싱: "1 예금이자는, 3 맞아" 또는 "1 예금이자는"
+        parsed = _parse_corrections(text, suggestions)
 
-        context.user_data["corrections"].append({
-            "segment_index": s.segment_index,
-            "corrected_text": user_text,
-        })
-        await update.message.reply_text(f"✏️ [{s.timestamp}] {s.original} → {user_text}")
+        if parsed:
+            for num, corrected in parsed.items():
+                s = suggestions.get(num)
+                if not s:
+                    continue
+                if corrected.lower() in ("맞아", "ㅇ", "수락", "ok"):
+                    if s.suggested:
+                        corrections[s.segment_index] = s.suggested
+                        await update.message.reply_text(f"  {num}. ✅ {s.original} → {s.suggested}")
+                    else:
+                        await update.message.reply_text(f"  {num}. ⏸ AI 제안 없음 — 직접 입력해주세요")
+                else:
+                    corrections[s.segment_index] = corrected
+                    await update.message.reply_text(f"  {num}. ✏️ {s.original} → {corrected}")
 
-        context.user_data["current_suggestion"] = idx + 1
-        await self._send_suggestion(update.message, context)
+            context.user_data["corrections"] = corrections
+            pending = {k: s for k, s in suggestions.items() if s.segment_index not in corrections}
+            if not pending:
+                await self._finish_review(update.message, context)
+                return ConversationHandler.END
+            await self._send_suggestions(update.message, context)
+        else:
+            await update.message.reply_text(
+                '형식: "번호 교정내용" (예: "1 예금이자는")\n'
+                '"확인" → AI 제안 전부 수락\n'
+                "/done → 종료"
+            )
 
-        if context.user_data["current_suggestion"] >= len(suggestions):
-            return ConversationHandler.END
         return REVIEWING
 
-    async def handle_skip(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """나머지 교정을 모두 건너뛴다."""
+    async def handle_done(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """교정 종료."""
         if update.message:
-            await update.message.reply_text("나머지 교정을 건너뜁니다.")
             await self._finish_review(update.message, context)
         return ConversationHandler.END
 
     async def _finish_review(self, message: Any, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """교정 세션을 마무리하고 최종본을 생성한다."""
-        corrections = context.user_data.get("corrections", [])
-        file_id = context.user_data.get("review_file_id", "")
-        tr = context.user_data.get("review_result")
+        """교정 반영 + 최종본 생성."""
+        corrections = context.user_data.get("corrections", {})
+        file_id = context.user_data.get("file_id", "")
+        tr = context.user_data.get("result")
 
         if not corrections:
-            await message.reply_text("교정 완료. 변경 사항 없음.")
-            self._clear_review_data(context)
+            await message.reply_text("변경 사항 없음. 교정 종료.")
+            self._clear_data(context)
             return
 
-        # 교정 적용
         try:
             from cheroki.corrector import Correction, CorrectionSet, apply_corrections, save_corrections
             from cheroki.transcript_store import save_transcript
             from cheroki.corpus import save_corpus_pairs
 
             corr_objects = []
-            for c in corrections:
-                idx = c["segment_index"]
-                original = tr.segments[idx].text.strip() if idx < len(tr.segments) else ""
+            for seg_idx, corrected_text in corrections.items():
+                original = tr.segments[seg_idx].text.strip() if seg_idx < len(tr.segments) else ""
                 corr_objects.append(Correction(
-                    segment_index=idx,
+                    segment_index=seg_idx,
                     original_text=original,
-                    corrected_text=c["corrected_text"],
+                    corrected_text=corrected_text,
                 ))
 
             corrected = apply_corrections(tr, corr_objects)
@@ -328,24 +288,22 @@ class CherokiBot:
             save_corpus_pairs(file_id, corr_objects, corpus_dir, source_file=tr.source_file)
 
             await message.reply_text(
-                f"교정 완료! {len(corrections)}개 수정됨.\n"
-                f"최종본 저장: {file_id}_final\n\n"
-                f"SRT/MD 내보내기: /export {file_id}"
+                f"교정 완료! {len(corrections)}개 수정.\n"
+                f"최종본: {file_id}_final"
             )
-            logger.info("telegram_review_complete", file_id=file_id, corrections=len(corrections))
+            logger.info("review_complete", file_id=file_id, corrections=len(corrections))
 
         except Exception as e:
-            logger.error("telegram_review_error", error=str(e))
-            await message.reply_text(f"교정 저장 중 오류: {e}")
+            logger.error("review_error", error=str(e))
+            await message.reply_text(f"교정 저장 오류: {e}")
 
-        self._clear_review_data(context)
+        self._clear_data(context)
 
-    def _clear_review_data(self, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """교정 세션 데이터 정리."""
-        for key in ["review_file_id", "review_result", "suggestions", "current_suggestion", "corrections"]:
+    def _clear_data(self, context: ContextTypes.DEFAULT_TYPE) -> None:
+        for key in ["file_id", "result", "suggestions", "corrections"]:
             context.user_data.pop(key, None)
 
-    # ── 파일 다운로드 + 전사 ────────────────────────────
+    # ── 전사 ────────────────────────────────────────────
 
     async def _download_and_transcribe(
         self, file_obj: Any, message: Any, context: ContextTypes.DEFAULT_TYPE,
@@ -375,12 +333,29 @@ class CherokiBot:
 
         return result
 
+    async def _get_ai_suggestions(self, tr: Any, file_id: str) -> list[Any]:
+        from cheroki.ai_reviewer import suggest_corrections_ai
+
+        segments = []
+        for i, seg in enumerate(tr.segments):
+            segments.append({
+                "index": i,
+                "start": seg.start,
+                "end": seg.end,
+                "text": seg.text.strip(),
+            })
+
+        claude_key = self.config.get("claude_api", {}).get("api_key", "")
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None, lambda: suggest_corrections_ai(segments, claude_key),
+        )
+
     # ── 앱 구성 ─────────────────────────────────────────
 
     def build_application(self) -> Application:
         app = Application.builder().token(self.token).build()
 
-        # 교정 대화 핸들러
         review_handler = ConversationHandler(
             entry_points=[
                 MessageHandler(filters.AUDIO | filters.VOICE, self.handle_audio),
@@ -388,13 +363,14 @@ class CherokiBot:
             ],
             states={
                 REVIEWING: [
-                    CallbackQueryHandler(self.handle_review_callback),
-                    CommandHandler("skip", self.handle_skip),
+                    CommandHandler("done", self.handle_done),
+                    CommandHandler("skip", self.handle_done),
                     MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_review_text),
                 ],
             },
             fallbacks=[
-                CommandHandler("skip", self.handle_skip),
+                CommandHandler("done", self.handle_done),
+                CommandHandler("skip", self.handle_done),
             ],
         )
 
@@ -445,3 +421,28 @@ def _split_text(text: str, max_len: int) -> list[str]:
         chunks.append(text[:idx])
         text = text[idx:].lstrip()
     return chunks
+
+
+def _parse_corrections(text: str, suggestions: dict[int, Any]) -> dict[int, str]:
+    """사용자 입력에서 번호+교정을 파싱.
+
+    "1 예금이자는, 3 맞아" → {1: "예금이자는", 3: "맞아"}
+    "1 예금이자는" → {1: "예금이자는"}
+    """
+    result: dict[int, str] = {}
+
+    # 쉼표 또는 줄바꿈으로 분리
+    parts = re.split(r"[,\n]", text)
+
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        # "번호 텍스트" 패턴
+        match = re.match(r"^(\d+)\s+(.+)$", part)
+        if match:
+            num = int(match.group(1))
+            if num in suggestions:
+                result[num] = match.group(2).strip()
+
+    return result
