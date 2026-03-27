@@ -212,6 +212,14 @@ class APITranscriber:
             logger.error("api_error", status=e.code, body=error_body)
             raise RuntimeError(f"OpenAI API 오류 ({e.code}): {error_body}") from e
 
+        # 응답 구조 로깅 (디버그)
+        logger.info("api_response_keys", keys=list(data.keys()),
+                     has_segments="segments" in data,
+                     has_words="words" in data,
+                     has_speakers="speakers" in data,
+                     has_logprobs="logprobs" in data,
+                     sample=str(data)[:500])
+
         if self._is_diarize:
             return self._parse_diarized_response(data, str(audio_path))
         return self._parse_response(data, str(audio_path))
