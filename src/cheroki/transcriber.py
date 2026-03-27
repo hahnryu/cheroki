@@ -128,7 +128,12 @@ _CHUNK_MINUTES = 10  # 분할 시 청크 크기 (분)
 
 
 class APITranscriber:
-    """OpenAI Whisper API 기반 전사 엔진.
+    """OpenAI API 기반 전사 엔진.
+
+    모델:
+    - whisper-1: 기본 전사 (화자 분리 없음)
+    - gpt-4o-transcribe: 전사 (화자 분리 없음, 더 정확)
+    - gpt-4o-transcribe-diarize: 전사 + 화자 분리
 
     25MB 초과 파일은 ffmpeg로 분할하여 청크별 전사 후 병합한다.
     """
@@ -136,12 +141,13 @@ class APITranscriber:
     def __init__(
         self,
         api_key: str,
-        model: str = "whisper-1",
+        model: str = "gpt-4o-transcribe-diarize",
         language: str = "ko",
     ) -> None:
         self.api_key = api_key
         self.model = model
         self.language = language
+        self._is_diarize = "diarize" in self.model
         if not self.api_key:
             raise ValueError("openai.api_key가 config.yaml에 설정되지 않았습니다")
 
@@ -169,14 +175,23 @@ class APITranscriber:
         import urllib.error
 
         boundary = "----CherokiBoundary"
-        body = _build_multipart(
-            audio_path,
-            model=self.model,
-            language=self.language,
-            response_format="verbose_json",
-            timestamp_granularities="segment",
-            boundary=boundary,
-        )
+
+        # diarize 모델은 다른 response_format 사용
+        if self._is_diarize:
+            fields = dict(
+                model=self.model,
+                language=self.language,
+                response_format="verbose_json",
+            )
+        else:
+            fields = dict(
+                model=self.model,
+                language=self.language,
+                response_format="verbose_json",
+                timestamp_granularities="segment",
+            )
+
+        body = _build_multipart(audio_path, boundary=boundary, **fields)
 
         req = urllib.request.Request(
             "https://api.openai.com/v1/audio/transcriptions",
@@ -189,13 +204,15 @@ class APITranscriber:
         )
 
         try:
-            with urllib.request.urlopen(req, timeout=300) as resp:
+            with urllib.request.urlopen(req, timeout=600) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             error_body = e.read().decode("utf-8", errors="replace")
             logger.error("api_error", status=e.code, body=error_body)
             raise RuntimeError(f"OpenAI API 오류 ({e.code}): {error_body}") from e
 
+        if self._is_diarize:
+            return self._parse_diarized_response(data, str(audio_path))
         return self._parse_response(data, str(audio_path))
 
     def _transcribe_chunked(self, audio_path: Path) -> TranscriptionResult:
@@ -243,14 +260,18 @@ class APITranscriber:
                 logger.info("transcription_chunk", chunk=chunk_idx, offset=offset)
                 result = self._transcribe_single(chunk_file)
 
-                # 타임스탬프 오프셋 적용
+                # 타임스탬프 오프셋 적용 + 화자 정보 보존
                 for seg in result.segments:
-                    all_segments.append(Segment(
+                    new_seg = Segment(
                         start=round(seg.start + offset, 3),
                         end=round(seg.end + offset, 3),
                         text=seg.text,
                         confidence=seg.confidence,
-                    ))
+                    )
+                    speaker = getattr(seg, "speaker", "")
+                    if speaker:
+                        object.__setattr__(new_seg, "speaker", speaker)
+                    all_segments.append(new_seg)
 
                 total_duration = max(total_duration, result.duration + offset)
                 detected_language = result.language
@@ -290,6 +311,74 @@ class APITranscriber:
 
         logger.info("transcription_complete", mode="api", segments=len(segments), duration=result.duration)
         return result
+
+    def _parse_diarized_response(self, data: dict[str, Any], source_file: str) -> TranscriptionResult:
+        """화자 분리 포함 API 응답을 파싱한다.
+
+        gpt-4o-transcribe-diarize 응답 형식:
+        - words/segments에 speaker 필드가 포함됨
+        - 또는 speakers[] 배열로 별도 제공
+        """
+        segments: list[Segment] = []
+
+        # segments에 speaker가 있는 경우
+        for seg in data.get("segments", []):
+            new_seg = Segment(
+                start=round(seg["start"], 3),
+                end=round(seg["end"], 3),
+                text=seg.get("text", ""),
+                confidence=round(math.exp(seg.get("avg_logprob", -1.0)), 4),
+            )
+            speaker = seg.get("speaker", "")
+            if speaker:
+                object.__setattr__(new_seg, "speaker", speaker)
+            segments.append(new_seg)
+
+        # words 레벨에서 화자 정보가 있으면 세그먼트에 매핑
+        if not any(getattr(s, "speaker", "") for s in segments):
+            segments = self._assign_speakers_from_words(data, segments)
+
+        duration = data.get("duration", 0.0)
+        if not segments and data.get("text"):
+            segments.append(Segment(start=0.0, end=duration, text=data["text"], confidence=0.9))
+
+        result = TranscriptionResult(
+            source_file=source_file,
+            language=data.get("language", self.language),
+            language_probability=1.0,
+            duration=round(duration, 3),
+            segments=segments,
+        )
+
+        n_speakers = len(set(getattr(s, "speaker", "") for s in segments) - {""})
+        logger.info("transcription_complete", mode="api+diarize", segments=len(segments),
+                     speakers=n_speakers, duration=result.duration)
+        return result
+
+    def _assign_speakers_from_words(
+        self, data: dict[str, Any], segments: list[Segment]
+    ) -> list[Segment]:
+        """words 배열의 speaker 정보를 segment에 매핑한다."""
+        words = data.get("words", [])
+        if not words or "speaker" not in words[0]:
+            return segments
+
+        # 각 세그먼트 시간대에 해당하는 words의 speaker를 다수결로 결정
+        for seg in segments:
+            speakers_in_seg: list[str] = []
+            for w in words:
+                w_start = w.get("start", 0)
+                w_end = w.get("end", 0)
+                if w_start >= seg.start and w_end <= seg.end + 0.5:
+                    if w.get("speaker"):
+                        speakers_in_seg.append(w["speaker"])
+            if speakers_in_seg:
+                # 다수결
+                from collections import Counter
+                most_common = Counter(speakers_in_seg).most_common(1)[0][0]
+                object.__setattr__(seg, "speaker", most_common)
+
+        return segments
 
 
 _API_SUPPORTED_FORMATS = {".flac", ".m4a", ".mp3", ".mp4", ".mpeg", ".mpga", ".oga", ".ogg", ".wav", ".webm"}
@@ -384,7 +473,7 @@ def create_transcriber(config: dict[str, Any]) -> LocalTranscriber | APITranscri
         api_key = openai_cfg.get("api_key", "")
         return APITranscriber(
             api_key=api_key,
-            model=whisper_cfg.get("api_model", "whisper-1"),
+            model=whisper_cfg.get("api_model", "gpt-4o-transcribe-diarize"),
             language=whisper_cfg.get("language", "ko"),
         )
 

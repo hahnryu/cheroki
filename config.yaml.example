@@ -20,7 +20,9 @@ whisper:
   language: "ko"
   device: "cpu"          # 로컬 모드: cpu 또는 cuda
   compute_type: "int8"   # 로컬 모드: int8, float16, float32
-  # api_model: "whisper-1"  # API 모드에서 사용할 모델
+  # api_model: "gpt-4o-transcribe-diarize"  # 전사+화자분리 (기본값)
+  # api_model: "gpt-4o-transcribe"          # 전사만 (화자분리 없음)
+  # api_model: "whisper-1"                  # 기본 Whisper (저렴)
 
 # OpenAI API (whisper.mode: "api" 일 때 필요)
 # openai:
