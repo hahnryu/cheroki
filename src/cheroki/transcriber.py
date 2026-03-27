@@ -141,13 +141,12 @@ class APITranscriber:
     def __init__(
         self,
         api_key: str,
-        model: str = "gpt-4o-transcribe-diarize",
+        model: str = "gpt-4o-transcribe",
         language: str = "ko",
     ) -> None:
         self.api_key = api_key
         self.model = model
         self.language = language
-        self._is_diarize = "diarize" in self.model
         if not self.api_key:
             raise ValueError("openai.api_key가 config.yaml에 설정되지 않았습니다")
 
@@ -176,21 +175,12 @@ class APITranscriber:
 
         boundary = "----CherokiBoundary"
 
-        # diarize 모델은 json + chunking_strategy 필수
-        if self._is_diarize:
-            fields = dict(
-                model=self.model,
-                language=self.language,
-                response_format="json",
-                chunking_strategy="auto",
-            )
-        else:
-            fields = dict(
-                model=self.model,
-                language=self.language,
-                response_format="verbose_json",
-                timestamp_granularities="segment",
-            )
+        fields = dict(
+            model=self.model,
+            language=self.language,
+            response_format="verbose_json",
+            timestamp_granularities="segment",
+        )
 
         body = _build_multipart(audio_path, boundary=boundary, **fields)
 
@@ -212,16 +202,6 @@ class APITranscriber:
             logger.error("api_error", status=e.code, body=error_body)
             raise RuntimeError(f"OpenAI API 오류 ({e.code}): {error_body}") from e
 
-        # 응답 구조 로깅 (디버그)
-        logger.info("api_response_keys", keys=list(data.keys()),
-                     has_segments="segments" in data,
-                     has_words="words" in data,
-                     has_speakers="speakers" in data,
-                     has_logprobs="logprobs" in data,
-                     sample=str(data)[:500])
-
-        if self._is_diarize:
-            return self._parse_diarized_response(data, str(audio_path))
         return self._parse_response(data, str(audio_path))
 
     def _transcribe_chunked(self, audio_path: Path) -> TranscriptionResult:
@@ -482,7 +462,7 @@ def create_transcriber(config: dict[str, Any]) -> LocalTranscriber | APITranscri
         api_key = openai_cfg.get("api_key", "")
         return APITranscriber(
             api_key=api_key,
-            model=whisper_cfg.get("api_model", "gpt-4o-transcribe-diarize"),
+            model=whisper_cfg.get("api_model", "gpt-4o-transcribe"),
             language=whisper_cfg.get("language", "ko"),
         )
 
