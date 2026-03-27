@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cheroki — 음성 전사</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f5; color: #333; }
+        .container { max-width: 900px; margin: 0 auto; padding: 20px; }
+        h1 { font-size: 1.8rem; margin-bottom: 8px; }
+        .subtitle { color: #666; margin-bottom: 24px; }
+
+        /* 업로드 영역 */
+        .upload-area {
+            border: 2px dashed #aaa; border-radius: 8px; padding: 40px; text-align: center;
+            background: #fff; margin-bottom: 24px; cursor: pointer; transition: border-color 0.2s;
+        }
+        .upload-area:hover, .upload-area.dragover { border-color: #4a90d9; background: #f0f7ff; }
+        .upload-area input[type="file"] { display: none; }
+        .upload-btn { display: inline-block; padding: 10px 24px; background: #4a90d9; color: #fff; border-radius: 6px; cursor: pointer; }
+
+        /* 상태 메시지 */
+        .message { padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; display: none; }
+        .message.info { display: block; background: #e3f2fd; color: #1565c0; }
+        .message.error { display: block; background: #fce4ec; color: #c62828; }
+        .message.success { display: block; background: #e8f5e9; color: #2e7d32; }
+
+        /* 파일 테이블 */
+        table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; }
+        th { background: #f0f0f0; text-align: left; padding: 10px 12px; font-weight: 600; }
+        td { padding: 10px 12px; border-top: 1px solid #eee; }
+        tr:hover td { background: #fafafa; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.8rem; }
+        .badge-ok { background: #c8e6c9; color: #2e7d32; }
+        .badge-no { background: #eee; color: #999; }
+        .btn { padding: 4px 12px; border: 1px solid #4a90d9; color: #4a90d9; border-radius: 4px; cursor: pointer; background: #fff; font-size: 0.85rem; }
+        .btn:hover { background: #4a90d9; color: #fff; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* 결과 영역 */
+        .result-area { background: #fff; padding: 16px; border-radius: 8px; margin-top: 16px; display: none; }
+        .result-area pre { white-space: pre-wrap; word-break: break-word; max-height: 400px; overflow-y: auto; background: #f8f8f8; padding: 12px; border-radius: 4px; }
+
+        .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #ccc; border-top-color: #4a90d9; border-radius: 50%; animation: spin 0.6s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Cheroki</h1>
+    <p class="subtitle">음성 전사 파이프라인 (Whisper: {{ config.whisper.model }})</p>
+
+    <!-- 업로드 -->
+    <div class="upload-area" id="dropZone" onclick="document.getElementById('fileInput').click()">
+        <p>음성 파일을 드래그하거나 클릭하여 업로드</p>
+        <p style="color:#999; margin-top:8px; font-size:0.9rem">mp3, m4a, wav, ogg, flac, webm, opus</p>
+        <input type="file" id="fileInput" accept="audio/*,.mp3,.m4a,.wav,.ogg,.flac,.webm,.opus">
+    </div>
+
+    <div id="statusMsg" class="message"></div>
+
+    <!-- 결과 -->
+    <div id="resultArea" class="result-area">
+        <h3>전사 결과</h3>
+        <pre id="resultText"></pre>
+    </div>
+
+    <!-- 파일 목록 -->
+    <h2 style="margin: 24px 0 12px;">전사 파일 목록</h2>
+    {% if files %}
+    <table>
+        <thead>
+            <tr>
+                <th>파일명</th>
+                <th>저장 시각</th>
+                <th>전사</th>
+                <th>산출물</th>
+                <th>작업</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for f in files %}
+            <tr>
+                <td title="{{ f.file_id }}">{{ f.original_name }}</td>
+                <td>{{ f.stored_at[:19] }}</td>
+                <td>
+                    {% if f.has_final %}
+                    <span class="badge badge-ok">교정 완료</span>
+                    {% elif f.has_transcript %}
+                    <span class="badge badge-ok">전사 완료</span>
+                    {% else %}
+                    <span class="badge badge-no">없음</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if f.has_exports %}
+                    <span class="badge badge-ok">생성됨</span>
+                    {% else %}
+                    <span class="badge badge-no">없음</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if f.has_transcript %}
+                    <button class="btn" onclick="viewTranscript('{{ f.file_id }}')">보기</button>
+                    {% endif %}
+                    {% if f.has_transcript %}
+                    <button class="btn" onclick="exportFile('{{ f.file_id }}')">내보내기</button>
+                    {% endif %}
+                    {% if f.has_exports %}
+                    <a class="btn" href="/api/download/{{ f.file_id }}/srt">SRT</a>
+                    <a class="btn" href="/api/download/{{ f.file_id }}/md">MD</a>
+                    {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color:#999;">아직 전사된 파일이 없습니다.</p>
+    {% endif %}
+</div>
+
+<script>
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+const statusMsg = document.getElementById('statusMsg');
+const resultArea = document.getElementById('resultArea');
+const resultText = document.getElementById('resultText');
+
+function showMsg(text, type) {
+    statusMsg.textContent = text;
+    statusMsg.className = 'message ' + type;
+}
+
+// 드래그 앤 드롭
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    if (e.dataTransfer.files.length) uploadFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => { if (fileInput.files.length) uploadFile(fileInput.files[0]); });
+
+async function uploadFile(file) {
+    showMsg('업로드 중... (전사에 시간이 걸릴 수 있습니다)', 'info');
+    resultArea.style.display = 'none';
+
+    const fd = new FormData();
+    fd.append('file', file);
+
+    try {
+        const res = await fetch('/api/upload', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '업로드 실패');
+
+        showMsg(`전사 완료! (ID: ${data.file_id}, ${data.segments}개 세그먼트, ${data.duration.toFixed(1)}초)`, 'success');
+        resultArea.style.display = 'block';
+        resultText.textContent = data.text_preview;
+        setTimeout(() => location.reload(), 2000);
+    } catch (e) {
+        showMsg('오류: ' + e.message, 'error');
+    }
+}
+
+async function viewTranscript(fileId) {
+    try {
+        const res = await fetch(`/api/transcript/${fileId}`);
+        const data = await res.json();
+        resultArea.style.display = 'block';
+        resultText.textContent = data.full_text || JSON.stringify(data, null, 2);
+    } catch (e) {
+        showMsg('조회 실패: ' + e.message, 'error');
+    }
+}
+
+async function exportFile(fileId) {
+    showMsg('산출물 생성 중...', 'info');
+    try {
+        const res = await fetch(`/api/export/${fileId}`, { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '내보내기 실패');
+        showMsg('산출물 생성 완료!', 'success');
+        setTimeout(() => location.reload(), 1000);
+    } catch (e) {
+        showMsg('오류: ' + e.message, 'error');
+    }
+}
+</script>
+</body>
+</html>

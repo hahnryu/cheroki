@@ -252,6 +252,22 @@ def watch(watch_dir: Path | None, config_path: Path | None) -> None:
 
 @main.command()
 @click.option("--config", "config_path", type=click.Path(exists=True, path_type=Path), default=None)
+@click.option("--host", default="0.0.0.0", help="바인드 호스트")
+@click.option("--port", default=8000, type=int, help="포트")
+def serve(config_path: Path | None, host: str, port: int) -> None:
+    """웹 서버를 실행한다."""
+    import uvicorn
+    from cheroki.config import get_config
+    from cheroki.web import create_app
+
+    config = get_config(config_path)
+    app = create_app(config)
+    click.echo(f"Cheroki 웹 서버: http://{host}:{port}")
+    uvicorn.run(app, host=host, port=port)
+
+
+@main.command()
+@click.option("--config", "config_path", type=click.Path(exists=True, path_type=Path), default=None)
 def bot(config_path: Path | None) -> None:
     """텔레그램 봇을 실행한다."""
     from cheroki.config import get_config
