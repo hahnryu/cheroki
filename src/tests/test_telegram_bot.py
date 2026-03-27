@@ -20,7 +20,7 @@ def config(tmp_path: Path) -> dict:
             "corpus": str(tmp_path / "corpus"),
             "exports": str(tmp_path / "exports"),
         },
-        "whisper": {"model": "tiny", "device": "cpu", "compute_type": "int8", "language": "ko"},
+        "whisper": {"model": "tiny", "device": "cpu", "compute_type": "int8", "language": "ko", "mode": "local"},
         "telegram": {
             "bot_token": "1234567890:AAFakeTokenForTesting",
             "allowed_users": [],
@@ -105,7 +105,7 @@ class TestCommandHandlers:
         update.message.reply_text = AsyncMock()
         await bot.cmd_status(update, MagicMock())
         text = update.message.reply_text.call_args[0][0]
-        assert "원본 파일" in text
+        assert "원본" in text
 
 
 class TestHandleAudio:
@@ -142,8 +142,8 @@ class TestHandleAudio:
 class TestBuildApplication:
     def test_build_registers_handlers(self, bot: CherokiBot) -> None:
         app = bot.build_application()
-        # CommandHandler 3개 + MessageHandler 2개 = 5개
-        assert len(app.handlers[0]) == 5
+        # CommandHandler 3개 + ConversationHandler 1개 = 4개
+        assert len(app.handlers[0]) == 4
 
 
 class TestSplitText:
