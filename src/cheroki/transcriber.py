@@ -178,8 +178,7 @@ class APITranscriber:
         fields = dict(
             model=self.model,
             language=self.language,
-            response_format="verbose_json",
-            timestamp_granularities="segment",
+            response_format="json",
         )
 
         body = _build_multipart(audio_path, boundary=boundary, **fields)
@@ -278,6 +277,8 @@ class APITranscriber:
     def _parse_response(self, data: dict[str, Any], source_file: str) -> TranscriptionResult:
         """API 응답을 TranscriptionResult로 변환."""
         segments: list[Segment] = []
+
+        # verbose_json 형식: segments 배열 있음
         for seg in data.get("segments", []):
             segments.append(Segment(
                 start=round(seg["start"], 3),
@@ -286,9 +287,23 @@ class APITranscriber:
                 confidence=round(math.exp(seg.get("avg_logprob", -1.0)), 4),
             ))
 
+        # json 형식: text만 있음 → 줄바꿈 기준으로 세그먼트 분할
         duration = data.get("duration", 0.0)
         if not segments and data.get("text"):
-            segments.append(Segment(start=0.0, end=duration, text=data["text"], confidence=0.9))
+            text = data["text"].strip()
+            lines = [l.strip() for l in text.split("\n") if l.strip()]
+            if len(lines) > 1:
+                # 줄바꿈이 있으면 각 줄을 세그먼트로
+                est_dur = duration / len(lines) if duration > 0 else 30.0
+                for i, line in enumerate(lines):
+                    segments.append(Segment(
+                        start=round(i * est_dur, 3),
+                        end=round((i + 1) * est_dur, 3),
+                        text=line,
+                        confidence=0.9,
+                    ))
+            else:
+                segments.append(Segment(start=0.0, end=duration, text=text, confidence=0.9))
 
         result = TranscriptionResult(
             source_file=source_file,
