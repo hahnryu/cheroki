@@ -1,0 +1,36 @@
+# Cheroki Configuration
+# 이 파일을 config.yaml로 복사한 뒤 환경에 맞게 수정하세요.
+# cp config.yaml.example config.yaml
+
+paths:
+  originals: "~/cheroki-data/originals/"
+  transcripts: "~/cheroki-data/transcripts/"
+  corrections: "~/cheroki-data/corrections/"
+  corpus: "~/cheroki-data/corpus/"
+  exports: "~/cheroki-data/exports/"
+
+  # Hahnness vault 연동 (Phase 3)
+  # vault: "/path/to/vault/"
+  # vault_log: "/path/to/vault/20 Log/"
+  # vault_resources: "/path/to/vault/80 Resources/"
+
+whisper:
+  model: "medium"
+  language: "ko"
+  device: "cpu"
+  compute_type: "int8"
+
+transcription:
+  min_confidence: 0.7
+  chunk_length: 30
+
+# telegram:
+#   bot_token: "YOUR_BOT_TOKEN"
+#   allowed_users: []  # 비어있으면 모든 사용자 허용
+
+# siltarae:
+#   api_url: ""
+#   api_key: ""
+
+# claude_api:
+#   api_key: ""

@@ -6,8 +6,12 @@ dist/
 build/
 .venv/
 .env
+config.yaml
+dictionary/*.yaml
 *.wav
 *.mp3
 *.m4a
 *.ogg
 *.flac
+*.webm
+*.opus
