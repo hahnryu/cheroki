@@ -1,0 +1,48 @@
+{
+  "phase": 0,
+  "title": "코어 (MVP)",
+  "features": [
+    {
+      "id": "F0-1",
+      "name": "프로젝트 구조 셋업",
+      "description": "pyproject.toml, src/cheroki 패키지, config.yaml 로딩, 데이터 디렉토리 자동 생성",
+      "test": "config 로딩 후 모든 경로가 올바르게 반환되는지 확인",
+      "status": "pending"
+    },
+    {
+      "id": "F0-2",
+      "name": "원본 음성 저장 (storage)",
+      "description": "음성 파일을 originals/로 복사, 파일 무결성 검증 (해시), 메타데이터 기록",
+      "test": "파일 복사 후 원본과 해시 일치, 메타데이터 JSON 존재 확인",
+      "status": "pending"
+    },
+    {
+      "id": "F0-3",
+      "name": "Whisper 전사 엔진",
+      "description": "faster-whisper로 음성→텍스트 전사, 세그먼트별 타임스탬프+confidence 포함",
+      "test": "테스트 음성 파일 전사 후 segments 리스트에 text, start, end, confidence 존재 확인",
+      "status": "pending"
+    },
+    {
+      "id": "F0-4",
+      "name": "전사 결과 저장",
+      "description": "전사 결과를 JSON으로 transcripts/에 저장, 원본 파일과 연결",
+      "test": "전사 결과 저장 후 JSON 파일 존재, 로드 시 원본 데이터와 일치",
+      "status": "pending"
+    },
+    {
+      "id": "F0-5",
+      "name": "CLI 인터페이스",
+      "description": "cheroki transcribe <파일경로> 명령으로 전사 실행, 결과 경로 출력",
+      "test": "CLI 실행 후 전사 결과 파일이 올바른 위치에 생성됨",
+      "status": "pending"
+    },
+    {
+      "id": "F0-6",
+      "name": "폴더 감시 (watcher)",
+      "description": "지정 폴더에 새 음성 파일 감지 시 자동으로 전사 파이프라인 실행",
+      "test": "감시 중 폴더에 파일 복사 → 자동으로 전사 결과 생성 확인",
+      "status": "pending"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cheroki"
+version = "0.1.0"
+description = "음성 전사 파이프라인 — Hahnness 생태계의 채록 에이전트"
+requires-python = ">=3.11"
+dependencies = [
+    "faster-whisper>=1.0.0",
+    "click>=8.0",
+    "pyyaml>=6.0",
+    "structlog>=24.0",
+    "watchdog>=4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+]
+
+[project.scripts]
+cheroki = "cheroki.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cheroki"]
+
+[tool.pytest.ini_options]
+testpaths = ["src/tests"]
+pythonpath = ["src"]
