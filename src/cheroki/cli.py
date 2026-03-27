@@ -308,6 +308,54 @@ def vault_sync(file_id: str, config_path: Path | None) -> None:
         click.echo("Vault 연동 실패 (설정 확인 필요)", err=True)
 
 
+@main.command(name="dataset")
+@click.option("--config", "config_path", type=click.Path(exists=True, path_type=Path), default=None)
+@click.option("--format", "fmt", type=click.Choice(["jsonl", "csv", "huggingface"]), default="jsonl")
+@click.option("--output", "output_path", type=click.Path(path_type=Path), default=None)
+def dataset_cmd(config_path: Path | None, fmt: str, output_path: Path | None) -> None:
+    """코퍼스를 데이터셋으로 내보낸다."""
+    from cheroki.config import get_config
+    from cheroki.dataset import export_jsonl, export_csv, export_huggingface
+
+    config = get_config(config_path)
+    corpus_dir = Path(config["paths"]["corpus"])
+    exports_dir = Path(config["paths"]["exports"])
+    tags_dir = corpus_dir / "tags"
+
+    if fmt == "jsonl":
+        out = output_path or exports_dir / "dataset.jsonl"
+        path = export_jsonl(corpus_dir, out, tags_dir if tags_dir.exists() else None)
+        click.echo(f"JSONL 내보내기 완료: {path}")
+    elif fmt == "csv":
+        out = output_path or exports_dir / "dataset.csv"
+        path = export_csv(corpus_dir, out, tags_dir if tags_dir.exists() else None)
+        click.echo(f"CSV 내보내기 완료: {path}")
+    elif fmt == "huggingface":
+        out = output_path or exports_dir / "hf_dataset"
+        path = export_huggingface(corpus_dir, out, tags_dir if tags_dir.exists() else None)
+        click.echo(f"HuggingFace 내보내기 완료: {path}")
+
+
+@main.command(name="package")
+@click.argument("file_id")
+@click.option("--config", "config_path", type=click.Path(exists=True, path_type=Path), default=None)
+@click.option("--output", "output_dir", type=click.Path(path_type=Path), default=None)
+def package_cmd(file_id: str, config_path: Path | None, output_dir: Path | None) -> None:
+    """하나의 전사에 대한 코퍼스 패키지를 생성한다."""
+    from cheroki.config import get_config
+    from cheroki.dataset import build_package, export_package
+
+    config = get_config(config_path)
+    pkg = build_package(file_id, config)
+    if not pkg:
+        click.echo(f"파일을 찾을 수 없습니다: {file_id}", err=True)
+        raise SystemExit(1)
+
+    out = output_dir or Path(config["paths"]["exports"]) / "packages"
+    pkg_dir = export_package(pkg, out)
+    click.echo(f"패키지 생성 완료: {pkg_dir}")
+
+
 @main.command()
 @click.option("--config", "config_path", type=click.Path(exists=True, path_type=Path), default=None)
 @click.option("--host", default="0.0.0.0", help="바인드 호스트")
