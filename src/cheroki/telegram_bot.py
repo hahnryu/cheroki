@@ -108,22 +108,29 @@ class CherokiBot:
 
         try:
             result = await self._download_and_transcribe(file_obj, message, context)
-            # 결과 전송
-            text = result["result"].full_text
+            tr = result["result"]
             file_id = result["file_id"]
 
+            # 타임스탬프 포함 포맷
+            text = _format_transcript(tr)
+            duration_min = int(tr.duration // 60)
+            duration_sec = int(tr.duration % 60)
+
+            header = (
+                f"전사 완료 (ID: {file_id})\n"
+                f"세그먼트: {len(tr.segments)}개 | "
+                f"길이: {duration_min}분 {duration_sec}초\n\n"
+                f"--- 결과 ---"
+            )
+
             # 텔레그램 메시지 길이 제한 (4096자)
-            if len(text) > 3800:
-                chunks = _split_text(text, 3800)
-                await message.reply_text(f"전사 완료 (ID: {file_id})\n세그먼트: {len(result['result'].segments)}개\n\n--- 결과 ---")
-                for chunk in chunks:
+            if len(header) + len(text) + 2 > 3800:
+                await message.reply_text(header)
+                for chunk in _split_text(text, 3800):
                     await message.reply_text(chunk)
             else:
-                await message.reply_text(
-                    f"전사 완료 (ID: {file_id})\n"
-                    f"세그먼트: {len(result['result'].segments)}개\n\n"
-                    f"--- 결과 ---\n{text}"
-                )
+                await message.reply_text(f"{header}\n{text}")
+
             logger.info("telegram_transcription_complete", file_id=file_id)
 
         except Exception as e:
@@ -188,15 +195,37 @@ class CherokiBot:
         app.run_polling(drop_pending_updates=True)
 
 
+def _format_timestamp(seconds: float) -> str:
+    """초를 MM:SS 형식으로."""
+    m, s = divmod(int(seconds), 60)
+    return f"{m:02d}:{s:02d}"
+
+
+def _format_transcript(result: Any) -> str:
+    """전사 결과를 타임스탬프+화자 포함 텍스트로 포맷."""
+    lines: list[str] = []
+    for seg in result.segments:
+        ts = _format_timestamp(seg.start)
+        speaker = getattr(seg, "speaker", "") or ""
+        text = seg.text.strip()
+        if speaker:
+            lines.append(f"[{ts}] {speaker}: {text}")
+        else:
+            lines.append(f"[{ts}] {text}")
+    return "\n".join(lines)
+
+
 def _split_text(text: str, max_len: int) -> list[str]:
-    """긴 텍스트를 max_len 이하 청크로 분할."""
+    """긴 텍스트를 max_len 이하 청크로 분할. 줄바꿈 기준으로 자른다."""
     chunks: list[str] = []
     while text:
         if len(text) <= max_len:
             chunks.append(text)
             break
-        # 마지막 공백에서 자르기
-        idx = text.rfind(" ", 0, max_len)
+        # 줄바꿈에서 자르기 (타임스탬프 라인이 중간에 잘리지 않게)
+        idx = text.rfind("\n", 0, max_len)
+        if idx == -1:
+            idx = text.rfind(" ", 0, max_len)
         if idx == -1:
             idx = max_len
         chunks.append(text[:idx])
