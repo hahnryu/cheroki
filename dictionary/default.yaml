@@ -1,0 +1,17 @@
+# Cheroki 고유명사 사전 — 기본
+# 카테고리별로 고유명사를 등록한다.
+# 전사 시 이 사전에 없는 고유명사가 감지되면 의심 구간으로 표시.
+
+people:
+  - 류한석
+
+places: []
+
+organizations: []
+
+products:
+  - Cheroki
+  - Hahnness
+  - Siltarae
+
+terms: []
