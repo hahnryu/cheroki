@@ -151,6 +151,9 @@ class APITranscriber:
         if not audio_path.is_file():
             raise FileNotFoundError(f"음성 파일을 찾을 수 없습니다: {audio_path}")
 
+        # API 지원 형식이 아니면 mp3로 변환
+        audio_path = _ensure_api_format(audio_path)
+
         file_size = audio_path.stat().st_size
         logger.info("transcription_start", mode="api", file=str(audio_path), size_mb=round(file_size / 1024 / 1024, 1))
 
@@ -287,6 +290,38 @@ class APITranscriber:
 
         logger.info("transcription_complete", mode="api", segments=len(segments), duration=result.duration)
         return result
+
+
+_API_SUPPORTED_FORMATS = {".flac", ".m4a", ".mp3", ".mp4", ".mpeg", ".mpga", ".oga", ".ogg", ".wav", ".webm"}
+
+
+def _ensure_api_format(audio_path: Path) -> Path:
+    """API 전송 전에 mp3로 변환한다.
+
+    텔레그램 음성(.ogg opus)이나 아이폰 녹음 등 코덱 호환 문제를 방지하기 위해,
+    mp3/wav/flac/m4a가 아니면 항상 mp3로 변환한다.
+    """
+    import shutil
+    import subprocess
+
+    # 이미 안전한 형식이면 그대로
+    safe_formats = {".mp3", ".wav", ".flac", ".m4a", ".mp4"}
+    if audio_path.suffix.lower() in safe_formats:
+        return audio_path
+
+    if not shutil.which("ffmpeg"):
+        raise RuntimeError(
+            f"파일 형식({audio_path.suffix})을 mp3로 변환해야 합니다. "
+            f"ffmpeg를 설치하세요: sudo apt install ffmpeg"
+        )
+
+    converted = audio_path.with_suffix(".mp3")
+    logger.info("converting_audio", source=str(audio_path), target=str(converted))
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", str(audio_path), "-ac", "1", "-ar", "16000", "-b:a", "64k", str(converted)],
+        capture_output=True, check=True,
+    )
+    return converted
 
 
 def _get_duration(audio_path: Path) -> float:
