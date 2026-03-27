@@ -2,91 +2,163 @@
 
 > 採錄 — 구술을 채집하고 기록한다.
 
-Hahnness 생태계의 음성 전사 에이전트.
-음성 파일을 받아 정확한 텍스트로 만들고, 교정하고, 구조화된 문서로 산출한다.
+로컬에서 돌아가는 음성 전사 파이프라인. 녹음 파일을 넣으면 정확한 텍스트가 나온다.
 
-## 온톨로지 위치
+Whisper를 로컬에서 돌리고, 의심 구간을 잡아내고, 사람이 교정하면 그걸 학습한다. 교정할수록 똑똑해지는 전사기.
+
+## 왜 만들었나
+
+음성 녹음을 텍스트로 바꾸는 건 Whisper가 잘 한다. 하지만 고유명사, 전문 용어, 사투리가 나오면 틀린다. 그래서:
+
+1. Whisper가 1차 전사를 하고
+2. 신뢰도가 낮은 구간을 자동으로 잡아서 "이거 맞아?" 하고 물어보고
+3. 사람이 고쳐주면 그 패턴을 기억해서 다음번엔 덜 틀린다
+
+이 루프를 반복하면 **나한테 맞춤화된 전사기**가 된다.
+
+## 주요 기능
+
+- **로컬 전사**: faster-whisper 기반, GPU/CPU 모두 지원
+- **교정 루프**: 의심 구간 자동 추출 → 질문 생성 → 교정 반영
+- **산출물**: SRT 자막 + Markdown 문서 (메타데이터, 화자 분리 포함)
+- **자동 학습**: 교정 패턴 누적 → 고유명사 사전 자동 구축
+- **텔레그램 봇**: 음성 파일 보내면 자동 전사 후 결과 회신
+- **웹 UI**: 파일 업로드, 전사 결과 조회, 산출물 다운로드
+- **코퍼스 관리**: 교정 쌍 누적 → JSONL/CSV/HuggingFace 형식 내보내기
+
+## 파이프라인
 
 ```
-류한석 → NodeONE → Siltarae (음성→지식그래프→자서전)
-                      ↑
-                   Cheroki (음성→정확한텍스트)
-                      = Siltarae의 앞단
-                      = 뿌리깊은나무의 원본 데이터 입력 채널
-```
-
-## 핵심 파이프라인
-
-```
-음성 파일 (텔레그램 / 웹 업로드 / 로컬 폴더)
+음성 파일 (텔레그램 / 웹 / 로컬 폴더)
   → 원본 보관 (절대 삭제 안 함)
-  → Whisper 로컬 전사 (1차 초벌 + 타임스탬프)
-  → 의심 구간/고유명사 자동 추출 → 질문 목록 생성
-  → 사용자 일괄 교정
-  → 최종 녹취록 (SRT + 구획별 MD)
-  → 교정 쌍 (틀린/맞는) 코퍼스로 누적
+  → Whisper 로컬 전사 (타임스탬프 포함)
+  → 의심 구간 자동 추출 → 질문 목록 생성
+  → 사용자 교정 → 패턴 학습
+  → 최종 녹취록 (SRT + MD)
+  → 교정 쌍 코퍼스로 누적
 ```
 
-## 산출물
+## 설치
 
-| 산출물 | 형식 | 용도 |
-|--------|------|------|
-| 원본 음성 | wav/mp3/m4a | 영구 보관 |
-| 1차 전사본 | json (타임스탬프 포함) | 코퍼스 데이터 (틀린 버전) |
-| 교정 diff | json | 코퍼스 데이터 (학습용) |
-| 최종 녹취록 | .srt | 자막 |
-| 최종 녹취록 | .md (구획별) | 문서, Hahnness vault로 이동 |
-| 메타데이터 | yaml frontmatter | 날짜, 장소, 참가자, 태그 |
+```bash
+# 클론
+git clone https://github.com/hahnryu/cheroki.git
+cd cheroki
 
-## Phase 계획
+# 가상환경
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
-### Phase 0: 코어 (MVP)
-- [ ] 프로젝트 구조 셋업 (Python, FastAPI)
-- [ ] 음성 파일 수신 (로컬 폴더 watch)
-- [ ] Whisper 로컬 전사 (타임스탬프 포함)
-- [ ] 원본 음성 + 전사 결과 저장
-- [ ] CLI로 전사 실행 가능
+# 설치
+pip install -e ".[dev]"
 
-### Phase 1: 교정 루프
-- [ ] 전사 결과에서 의심 구간 자동 추출 (낮은 confidence, 고유명사, 불분명 구간)
-- [ ] 질문 목록 생성 (타임스탬프 + 전후 맥락 포함)
-- [ ] 사용자 교정 입력 수신
-- [ ] 교정 반영 → 최종본 확정
-- [ ] 교정 쌍 (원본/교정) 누적 저장
+# 설정
+cp config.yaml.example config.yaml
+# config.yaml을 환경에 맞게 수정
+```
 
-### Phase 2: 산출물 생성
-- [ ] SRT 자막 파일 생성
-- [ ] 구획별 MD 파일 생성 (화자, 타임스탬프, 메타데이터 포함)
-- [ ] 메타데이터 자동 추출 (날짜, 장소, 참가자)
-- [ ] 화자 분리 (diarization)
+## 사용법
 
-### Phase 3: 지능화
-- [ ] 고유명사 사전 자동 구축 (누적 교정 기반)
-- [ ] 이전 교정 패턴 참조하여 오류 사전 감지
-- [ ] Hahnness vault 연동 (최종 MD를 적절한 폴더로 라우팅)
+### CLI
 
-### Phase 4: 인터페이스
-- [ ] 웹 UI (파일 업로드, 교정 인터페이스, 산출물 다운로드)
-- [ ] 텔레그램 봇 연동 (파일 수신 → 자동 전사 시작)
-- [ ] Siltarae 연동 (최종 녹취록 → Fragment)
+```bash
+# 음성 파일 전사
+cheroki transcribe recording.mp3
 
-### Phase 5: 코퍼스
-- [ ] 음성 코퍼스 데이터 패키징 (원본음성 + 틀린전사 + 교정전사)
-- [ ] 메타데이터 태깅 (화자 나이, 방언, 주제 등)
-- [ ] 데이터셋 내보내기 형식 정의
+# 의심 구간 검토
+cheroki review <file_id>
 
-## 기술 스택 (예정)
+# 교정 적용
+cheroki correct <file_id> corrections.json
 
-- **언어**: Python 3.11+
-- **웹 프레임워크**: FastAPI
-- **음성 전사**: faster-whisper (로컬)
-- **화자 분리**: pyannote-audio (로컬)
-- **AI 교정**: Claude API (고유명사/맥락 분석)
-- **DB**: SQLite (메타데이터, 교정 이력)
-- **프론트엔드**: React (Phase 4)
+# SRT + MD 내보내기
+cheroki export <file_id>
 
-## 프라이버시 원칙
+# 교정 패턴 학습 + 사전 업데이트
+cheroki learn
 
-- 모든 원본 파일과 처리 결과는 로컬 서버에만 보관
-- 외부 API 호출 시 음성 원본은 전송하지 않음 (전사 텍스트만 필요 시)
-- Whisper는 반드시 로컬 실행
+# 코퍼스 데이터셋 내보내기
+cheroki dataset --format jsonl
+cheroki dataset --format csv
+cheroki dataset --format huggingface
+```
+
+### 텔레그램 봇
+
+```bash
+# config.yaml에 bot_token 설정 후
+cheroki bot
+```
+
+봇에 음성 파일을 보내면 자동으로 전사하여 결과를 회신한다.
+
+### 웹 UI
+
+```bash
+cheroki serve --port 8000
+```
+
+`http://localhost:8000`에서 파일 업로드, 전사 결과 조회, 산출물 다운로드.
+
+### 폴더 감시
+
+```bash
+# originals/ 폴더에 파일이 들어오면 자동 전사
+cheroki watch
+```
+
+## 설정
+
+`config.yaml.example`을 `config.yaml`로 복사하여 사용.
+
+```yaml
+whisper:
+  model: "medium"      # tiny, base, small, medium, large-v3
+  language: "ko"
+  device: "cpu"        # cpu 또는 cuda
+  compute_type: "int8" # int8, float16, float32
+
+telegram:
+  bot_token: "YOUR_BOT_TOKEN"
+  allowed_users: []    # 비어있으면 모두 허용
+```
+
+## 프로젝트 구조
+
+```
+cheroki/
+├── src/cheroki/
+│   ├── transcriber.py     # Whisper 전사 엔진
+│   ├── storage.py         # 원본 파일 저장/관리
+│   ├── reviewer.py        # 의심 구간 추출, 질문 생성
+│   ├── corrector.py       # 교정 반영
+│   ├── exporter.py        # SRT, MD 산출물 생성
+│   ├── learner.py         # 패턴 학습, 사전 자동 구축, vault 연동
+│   ├── telegram_bot.py    # 텔레그램 봇
+│   ├── web.py             # FastAPI 웹 서버
+│   ├── dataset.py         # 코퍼스 패키징, 내보내기
+│   └── ...
+├── config.yaml.example
+├── pyproject.toml
+└── src/tests/             # 151개 테스트
+```
+
+## 프라이버시
+
+- **모든 처리가 로컬에서 실행됨**. Whisper 모델은 로컬 실행.
+- 음성 원본은 외부로 전송되지 않음
+- 데이터는 로컬 디스크에만 존재
+- `data/` 디렉토리는 git에 포함되지 않음
+
+## 기술 스택
+
+- Python 3.11+
+- [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — 로컬 음성 전사
+- [FastAPI](https://fastapi.tiangolo.com/) — 웹 서버
+- [python-telegram-bot](https://python-telegram-bot.org/) — 텔레그램 연동
+- Click — CLI
+- structlog — 구조화 로깅
+
+## 라이선스
+
+MIT

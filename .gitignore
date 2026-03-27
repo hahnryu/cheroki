@@ -1,13 +1,7 @@
+# 데이터 (로컬 전용, 절대 git에 올리지 않음)
 data/
-*.pyc
-__pycache__/
-*.egg-info/
-dist/
-build/
-.venv/
-.env
-config.yaml
-dictionary/*.yaml
+
+# 음성 파일
 *.wav
 *.mp3
 *.m4a
@@ -15,3 +9,31 @@ dictionary/*.yaml
 *.flac
 *.webm
 *.opus
+
+# 설정 (API 키/토큰 포함)
+config.yaml
+
+# 고유명사 사전 (자동 학습분)
+dictionary/*.yaml
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Whisper 모델 캐시
+models/
