@@ -142,8 +142,8 @@ class TestHandleAudio:
 class TestBuildApplication:
     def test_build_registers_handlers(self, bot: CherokiBot) -> None:
         app = bot.build_application()
-        # CommandHandler 3개 + ConversationHandler 1개 = 4개
-        assert len(app.handlers[0]) == 4
+        # CommandHandler 4개 + ConversationHandler 1개 = 5개
+        assert len(app.handlers[0]) == 5
 
 
 class TestSplitText:
