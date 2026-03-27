@@ -50,5 +50,37 @@ def info() -> None:
         click.echo(f"  {key}: {value}")
 
 
+@main.command()
+@click.argument("watch_dir", type=click.Path(path_type=Path), default=None, required=False)
+@click.option("--config", "config_path", type=click.Path(exists=True, path_type=Path), default=None)
+def watch(watch_dir: Path | None, config_path: Path | None) -> None:
+    """폴더를 감시하여 새 음성 파일을 자동 전사한다."""
+    import time
+    from cheroki.config import get_config
+    from cheroki.pipeline import run_pipeline
+    from cheroki.watcher import watch_folder
+
+    config = get_config(config_path)
+    target = watch_dir or Path(config["paths"]["originals"])
+
+    def on_new_file(path: Path) -> None:
+        try:
+            run_pipeline(path, config=config)
+        except Exception as e:
+            click.echo(f"전사 실패: {path.name} — {e}", err=True)
+
+    click.echo(f"감시 시작: {target}")
+    click.echo("Ctrl+C로 종료")
+    observer = watch_folder(target, on_new_file)
+
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        observer.stop()
+        observer.join()
+        click.echo("\n감시 종료.")
+
+
 if __name__ == "__main__":
     main()
