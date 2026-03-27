@@ -1,53 +1,49 @@
 {
-  "phase": 0,
-  "title": "코어 (MVP)",
+  "phase": 1,
+  "title": "교정 루프",
   "features": [
     {
-      "id": "F0-1",
-      "name": "프로젝트 구조 셋업",
-      "description": "pyproject.toml, src/cheroki 패키지, config.yaml 로딩, 데이터 디렉토리 자동 생성",
-      "test": "config 로딩 후 모든 경로가 올바르게 반환되는지 확인",
-      "status": "done",
-      "commit": "aec33f3"
+      "id": "F1-1",
+      "name": "고유명사 사전",
+      "description": "dictionary/ 폴더의 YAML 파일에서 고유명사 목록 로드. 사전에 없는 단어 감지 기반 제공",
+      "test": "사전 로드 후 단어 조회, 전사 텍스트에서 미등록 고유명사 후보 추출",
+      "status": "pending"
     },
     {
-      "id": "F0-2",
-      "name": "원본 음성 저장 (storage)",
-      "description": "음성 파일을 originals/로 복사, 파일 무결성 검증 (해시), 메타데이터 기록",
-      "test": "파일 복사 후 원본과 해시 일치, 메타데이터 JSON 존재 확인",
-      "status": "done",
-      "commit": "b658d4d"
+      "id": "F1-2",
+      "name": "의심 구간 추출 (reviewer)",
+      "description": "전사 결과에서 낮은 confidence, 고유명사 미매칭, 짧은/불완전 세그먼트를 의심 구간으로 추출",
+      "test": "다양한 confidence의 세그먼트 입력 시 의심 구간만 정확히 필터링",
+      "status": "pending"
     },
     {
-      "id": "F0-3",
-      "name": "Whisper 전사 엔진",
-      "description": "faster-whisper로 음성→텍스트 전사, 세그먼트별 타임스탬프+confidence 포함",
-      "test": "테스트 음성 파일 전사 후 segments 리스트에 text, start, end, confidence 존재 확인",
-      "status": "done",
-      "commit": "be7582b"
+      "id": "F1-3",
+      "name": "질문 목록 생성",
+      "description": "의심 구간에 대해 타임스탬프+전후 맥락을 포함한 교정 질문 목록 생성 (JSON)",
+      "test": "의심 구간 입력 시 질문 목록에 context_before, context_after, timestamp 포함 확인",
+      "status": "pending"
     },
     {
-      "id": "F0-4",
-      "name": "전사 결과 저장",
-      "description": "전사 결과를 JSON으로 transcripts/에 저장, 원본 파일과 연결",
-      "test": "전사 결과 저장 후 JSON 파일 존재, 로드 시 원본 데이터와 일치",
-      "status": "done",
-      "commit": "f4fa991"
+      "id": "F1-4",
+      "name": "교정 입력 수신 및 반영 (corrector)",
+      "description": "사용자가 제출한 교정 데이터를 전사 결과에 반영하여 최종본 생성",
+      "test": "교정 적용 후 해당 세그먼트 텍스트가 변경되고 is_corrected 플래그 확인",
+      "status": "pending"
     },
     {
-      "id": "F0-5",
-      "name": "CLI 인터페이스",
-      "description": "cheroki transcribe <파일경로> 명령으로 전사 실행, 결과 경로 출력",
-      "test": "CLI 실행 후 전사 결과 파일이 올바른 위치에 생성됨",
-      "status": "done",
-      "commit": "3f55e81"
+      "id": "F1-5",
+      "name": "교정 쌍 코퍼스 누적 (corpus)",
+      "description": "원본 전사와 교정 후 텍스트를 쌍으로 저장하여 학습 데이터 누적",
+      "test": "교정 후 corpus/ 디렉토리에 원본/교정 쌍 JSON 존재, 누적 카운트 증가",
+      "status": "pending"
     },
     {
-      "id": "F0-6",
-      "name": "폴더 감시 (watcher)",
-      "description": "지정 폴더에 새 음성 파일 감지 시 자동으로 전사 파이프라인 실행",
-      "test": "감시 중 폴더에 파일 복사 → 자동으로 전사 결과 생성 확인",
-      "status": "done"
+      "id": "F1-6",
+      "name": "교정 루프 CLI",
+      "description": "cheroki review <file_id> → 질문 목록 출력, cheroki correct <file_id> → 교정 적용",
+      "test": "CLI로 review/correct 실행 시 올바른 파일 생성",
+      "status": "pending"
     }
-  ]
+  ],
+  "phase_0_completed": true
 }
