@@ -175,11 +175,20 @@ class APITranscriber:
 
         boundary = "----CherokiBoundary"
 
-        fields = dict(
-            model=self.model,
-            language=self.language,
-            response_format="json",
-        )
+        # whisper-1은 verbose_json 지원, gpt-4o 계열은 json만
+        if "whisper" in self.model:
+            fields = dict(
+                model=self.model,
+                language=self.language,
+                response_format="verbose_json",
+                timestamp_granularities="segment",
+            )
+        else:
+            fields = dict(
+                model=self.model,
+                language=self.language,
+                response_format="json",
+            )
 
         body = _build_multipart(audio_path, boundary=boundary, **fields)
 
