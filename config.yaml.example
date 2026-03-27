@@ -15,10 +15,16 @@ paths:
   # vault_resources: "/path/to/vault/80 Resources/"
 
 whisper:
-  model: "medium"
+  mode: "local"          # "local" (faster-whisper) 또는 "api" (OpenAI)
+  model: "medium"        # 로컬 모드: tiny, base, small, medium, large-v3
   language: "ko"
-  device: "cpu"
-  compute_type: "int8"
+  device: "cpu"          # 로컬 모드: cpu 또는 cuda
+  compute_type: "int8"   # 로컬 모드: int8, float16, float32
+  # api_model: "whisper-1"  # API 모드에서 사용할 모델
+
+# OpenAI API (whisper.mode: "api" 일 때 필요)
+# openai:
+#   api_key: "sk-..."
 
 transcription:
   min_confidence: 0.7

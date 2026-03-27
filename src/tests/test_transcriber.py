@@ -59,20 +59,42 @@ def test_transcription_result_to_dict():
     assert len(d["segments"]) == 1
 
 
-def test_from_config():
+def test_create_transcriber_local():
+    from cheroki.transcriber import create_transcriber, LocalTranscriber
     config = {
         "whisper": {
+            "mode": "local",
             "model": "small",
             "device": "cpu",
             "compute_type": "int8",
             "language": "ko",
         }
     }
-    t = Transcriber.from_config(config)
+    t = create_transcriber(config)
+    assert isinstance(t, LocalTranscriber)
     assert t.model_size == "small"
-    assert t.device == "cpu"
-    assert t.compute_type == "int8"
     assert t.language == "ko"
+
+
+def test_create_transcriber_api():
+    from cheroki.transcriber import create_transcriber, APITranscriber
+    config = {
+        "whisper": {"mode": "api", "language": "ko"},
+        "openai": {"api_key": "sk-test"},
+    }
+    t = create_transcriber(config)
+    assert isinstance(t, APITranscriber)
+    assert t.language == "ko"
+
+
+def test_create_transcriber_api_no_key():
+    from cheroki.transcriber import create_transcriber
+    config = {
+        "whisper": {"mode": "api"},
+        "openai": {"api_key": ""},
+    }
+    with pytest.raises(ValueError, match="api_key"):
+        create_transcriber(config)
 
 
 def test_transcribe_missing_file():

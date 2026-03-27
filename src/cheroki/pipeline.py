@@ -8,7 +8,7 @@ from typing import Any
 
 from cheroki.config import get_config
 from cheroki.storage import store_original
-from cheroki.transcriber import Transcriber, TranscriptionResult
+from cheroki.transcriber import create_transcriber, TranscriptionResult
 from cheroki.transcript_store import save_transcript
 
 logger = structlog.get_logger()
@@ -34,7 +34,7 @@ def run_pipeline(
 
     # 2. 전사
     logger.info("pipeline_transcribe", file_id=file_id)
-    transcriber = Transcriber.from_config(config)
+    transcriber = create_transcriber(config)
     result = transcriber.transcribe(audio_path)
 
     # 3. 결과 저장
