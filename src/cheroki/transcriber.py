@@ -141,7 +141,7 @@ class APITranscriber:
     def __init__(
         self,
         api_key: str,
-        model: str = "gpt-4o-transcribe",
+        model: str = "whisper-1",
         language: str = "ko",
     ) -> None:
         self.api_key = api_key
