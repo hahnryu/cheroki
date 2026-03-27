@@ -123,8 +123,15 @@ class LocalTranscriber:
 
 # ── API 전사 (OpenAI Whisper API) ─────────────────────
 
+_MAX_API_FILE_SIZE = 24 * 1024 * 1024  # 24MB (25MB 제한에 여유)
+_CHUNK_MINUTES = 10  # 분할 시 청크 크기 (분)
+
+
 class APITranscriber:
-    """OpenAI Whisper API 기반 전사 엔진."""
+    """OpenAI Whisper API 기반 전사 엔진.
+
+    25MB 초과 파일은 ffmpeg로 분할하여 청크별 전사 후 병합한다.
+    """
 
     def __init__(
         self,
@@ -140,18 +147,24 @@ class APITranscriber:
 
     def transcribe(self, audio_path: Path) -> TranscriptionResult:
         """음성 파일을 OpenAI API로 전사한다."""
-        import json
-        import urllib.request
-        import urllib.error
-        from email.mime.multipart import MIMEMultipart
-
         audio_path = Path(audio_path)
         if not audio_path.is_file():
             raise FileNotFoundError(f"음성 파일을 찾을 수 없습니다: {audio_path}")
 
-        logger.info("transcription_start", mode="api", file=str(audio_path))
+        file_size = audio_path.stat().st_size
+        logger.info("transcription_start", mode="api", file=str(audio_path), size_mb=round(file_size / 1024 / 1024, 1))
 
-        # multipart/form-data 직접 구성
+        if file_size > _MAX_API_FILE_SIZE:
+            return self._transcribe_chunked(audio_path)
+
+        return self._transcribe_single(audio_path)
+
+    def _transcribe_single(self, audio_path: Path) -> TranscriptionResult:
+        """단일 파일 전사."""
+        import json
+        import urllib.request
+        import urllib.error
+
         boundary = "----CherokiBoundary"
         body = _build_multipart(
             audio_path,
@@ -172,10 +185,85 @@ class APITranscriber:
             method="POST",
         )
 
-        with urllib.request.urlopen(req, timeout=300) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+        try:
+            with urllib.request.urlopen(req, timeout=300) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode("utf-8", errors="replace")
+            logger.error("api_error", status=e.code, body=error_body)
+            raise RuntimeError(f"OpenAI API 오류 ({e.code}): {error_body}") from e
 
-        # API 응답 → TranscriptionResult 변환
+        return self._parse_response(data, str(audio_path))
+
+    def _transcribe_chunked(self, audio_path: Path) -> TranscriptionResult:
+        """큰 파일을 분할하여 전사한다 (ffmpeg 필요)."""
+        import shutil
+        import subprocess
+        import tempfile
+
+        if not shutil.which("ffmpeg"):
+            raise RuntimeError(
+                f"파일이 {audio_path.stat().st_size // 1024 // 1024}MB로 OpenAI API 제한(25MB)을 초과합니다. "
+                f"분할 전사를 위해 ffmpeg를 설치하세요: sudo apt install ffmpeg"
+            )
+
+        logger.info("transcription_chunking", file=str(audio_path))
+
+        # 음성 길이 확인
+        duration = _get_duration(audio_path)
+        chunk_seconds = _CHUNK_MINUTES * 60
+
+        all_segments: list[Segment] = []
+        total_duration = 0.0
+        detected_language = self.language
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            chunk_idx = 0
+            offset = 0.0
+
+            while offset < duration:
+                chunk_file = tmp_path / f"chunk_{chunk_idx:03d}.mp3"
+
+                # ffmpeg로 청크 추출 (mp3로 압축하여 용량 감소)
+                cmd = [
+                    "ffmpeg", "-y", "-i", str(audio_path),
+                    "-ss", str(offset),
+                    "-t", str(chunk_seconds),
+                    "-ac", "1",           # 모노
+                    "-ar", "16000",       # 16kHz
+                    "-b:a", "64k",        # 64kbps
+                    str(chunk_file),
+                ]
+                subprocess.run(cmd, capture_output=True, check=True)
+
+                logger.info("transcription_chunk", chunk=chunk_idx, offset=offset)
+                result = self._transcribe_single(chunk_file)
+
+                # 타임스탬프 오프셋 적용
+                for seg in result.segments:
+                    all_segments.append(Segment(
+                        start=round(seg.start + offset, 3),
+                        end=round(seg.end + offset, 3),
+                        text=seg.text,
+                        confidence=seg.confidence,
+                    ))
+
+                total_duration = max(total_duration, result.duration + offset)
+                detected_language = result.language
+                offset += chunk_seconds
+                chunk_idx += 1
+
+        return TranscriptionResult(
+            source_file=str(audio_path),
+            language=detected_language,
+            language_probability=1.0,
+            duration=round(total_duration, 3),
+            segments=all_segments,
+        )
+
+    def _parse_response(self, data: dict[str, Any], source_file: str) -> TranscriptionResult:
+        """API 응답을 TranscriptionResult로 변환."""
         segments: list[Segment] = []
         for seg in data.get("segments", []):
             segments.append(Segment(
@@ -187,11 +275,10 @@ class APITranscriber:
 
         duration = data.get("duration", 0.0)
         if not segments and data.get("text"):
-            # segments가 없으면 전체 텍스트를 하나의 세그먼트로
             segments.append(Segment(start=0.0, end=duration, text=data["text"], confidence=0.9))
 
         result = TranscriptionResult(
-            source_file=str(audio_path),
+            source_file=source_file,
             language=data.get("language", self.language),
             language_probability=1.0,
             duration=round(duration, 3),
@@ -200,6 +287,20 @@ class APITranscriber:
 
         logger.info("transcription_complete", mode="api", segments=len(segments), duration=result.duration)
         return result
+
+
+def _get_duration(audio_path: Path) -> float:
+    """ffprobe로 음성 파일의 길이(초)를 구한다."""
+    import subprocess
+    result = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", str(audio_path)],
+        capture_output=True, text=True,
+    )
+    try:
+        return float(result.stdout.strip())
+    except ValueError:
+        return 3600.0  # fallback: 1시간으로 가정
 
 
 def _build_multipart(
