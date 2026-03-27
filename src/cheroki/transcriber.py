@@ -176,12 +176,13 @@ class APITranscriber:
 
         boundary = "----CherokiBoundary"
 
-        # diarize 모델은 json만 지원 (verbose_json 불가)
+        # diarize 모델은 json + chunking_strategy 필수
         if self._is_diarize:
             fields = dict(
                 model=self.model,
                 language=self.language,
                 response_format="json",
+                chunking_strategy="auto",
             )
         else:
             fields = dict(
