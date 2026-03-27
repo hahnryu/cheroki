@@ -252,6 +252,64 @@ def watch(watch_dir: Path | None, config_path: Path | None) -> None:
 
 @main.command()
 @click.option("--config", "config_path", type=click.Path(exists=True, path_type=Path), default=None)
+@click.option("--min-freq", default=2, type=int, help="최소 빈도 (이 이상 등장한 단어만 사전에 추가)")
+def learn(config_path: Path | None, min_freq: int) -> None:
+    """교정 코퍼스에서 패턴을 학습하고 사전을 업데이트한다."""
+    from cheroki.config import get_config
+    from cheroki.dictionary import Dictionary
+    from cheroki.learner import auto_update_dictionary, learn_correction_patterns, save_patterns
+
+    config = get_config(config_path)
+    corpus_dir = Path(config["paths"]["corpus"])
+    dictionary = Dictionary.from_config(config)
+
+    # 고유명사 자동 추출
+    added = auto_update_dictionary(corpus_dir, dictionary, min_frequency=min_freq)
+    if added:
+        dict_dir = Path(__file__).resolve().parents[1] / "dictionary"
+        dict_dir.mkdir(parents=True, exist_ok=True)
+        dictionary.save_file(dict_dir / "auto_learned.yaml")
+        click.echo(f"사전에 {len(added)}개 단어 추가: {', '.join(added[:10])}")
+    else:
+        click.echo("새로 추가할 고유명사 없음")
+
+    # 교정 패턴 학습
+    patterns = learn_correction_patterns(corpus_dir)
+    if patterns:
+        patterns_path = Path(config["paths"]["corrections"]) / "patterns.json"
+        save_patterns(patterns, patterns_path)
+        click.echo(f"교정 패턴 {len(patterns)}개 학습 (저장: {patterns_path})")
+        for p in patterns[:5]:
+            click.echo(f"  [{p.frequency}회] {p.original} → {p.corrected}")
+    else:
+        click.echo("학습할 교정 패턴 없음")
+
+
+@main.command(name="vault-sync")
+@click.argument("file_id")
+@click.option("--config", "config_path", type=click.Path(exists=True, path_type=Path), default=None)
+def vault_sync(file_id: str, config_path: Path | None) -> None:
+    """최종 MD를 Hahnness vault로 복사한다."""
+    from cheroki.config import get_config
+    from cheroki.learner import route_to_vault
+
+    config = get_config(config_path)
+    exports_dir = Path(config["paths"]["exports"])
+    md_path = exports_dir / f"{file_id}.md"
+
+    if not md_path.exists():
+        click.echo(f"MD 파일 없음: {md_path}", err=True)
+        raise SystemExit(1)
+
+    dest = route_to_vault(md_path, config)
+    if dest:
+        click.echo(f"Vault로 복사 완료: {dest}")
+    else:
+        click.echo("Vault 연동 실패 (설정 확인 필요)", err=True)
+
+
+@main.command()
+@click.option("--config", "config_path", type=click.Path(exists=True, path_type=Path), default=None)
 @click.option("--host", default="0.0.0.0", help="바인드 호스트")
 @click.option("--port", default=8000, type=int, help="포트")
 def serve(config_path: Path | None, host: str, port: int) -> None:
