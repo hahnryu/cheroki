@@ -1,43 +1,45 @@
 {
-  "phase": 2,
-  "title": "산출물 생성",
+  "phase": 4,
+  "title": "인터페이스",
   "features": [
     {
-      "id": "F2-1",
-      "name": "SRT 자막 생성",
-      "description": "전사 결과 → 표준 SRT 자막 파일",
-      "test": "SRT 파일 생성 후 포맷 검증 (번호, 타임스탬프, 텍스트)",
+      "id": "F4-1",
+      "name": "텔레그램 봇 기본 구조",
+      "description": "python-telegram-bot 봇 초기화, /start /help /status 명령어, 음성/파일 수신 핸들러",
+      "test": "봇 초기화 및 핸들러 등록 검증, mock 기반 메시지 처리 테스트",
       "status": "pending"
     },
     {
-      "id": "F2-2",
-      "name": "메타데이터 추출",
-      "description": "파일명/전사 텍스트에서 날짜, 장소, 참가자 자동 추출 (YAML frontmatter)",
-      "test": "다양한 입력에서 메타데이터 추출 확인",
+      "id": "F4-2",
+      "name": "텔레그램 → 전사 파이프라인 연동",
+      "description": "수신 음성파일 → originals/ 저장 → 전사 트리거 → 결과 텔레그램 회신",
+      "test": "파일 수신~전사~회신 전체 플로우 mock 테스트",
       "status": "pending"
     },
     {
-      "id": "F2-3",
-      "name": "구획별 MD 생성",
-      "description": "타임스탬프+메타데이터+화자 포함 Markdown 문서",
-      "test": "MD 파일에 frontmatter, 타임스탬프, 텍스트 포함 확인",
+      "id": "F4-3",
+      "name": "FastAPI 웹 서버",
+      "description": "파일 업로드 API, 전사 상태 조회, 산출물 다운로드 엔드포인트",
+      "test": "TestClient로 업로드/조회/다운로드 API 테스트",
       "status": "pending"
     },
     {
-      "id": "F2-4",
-      "name": "화자 분리 (diarization)",
-      "description": "pyannote-audio로 화자 구분, 전사 세그먼트에 화자 라벨 부착",
-      "test": "mock 기반 화자 라벨 할당 검증",
+      "id": "F4-4",
+      "name": "웹 UI",
+      "description": "Jinja2 기반 웹 UI — 파일 업로드, 전사 진행 상태, 산출물 다운로드",
+      "test": "페이지 렌더링 및 폼 제출 테스트",
       "status": "pending"
     },
     {
-      "id": "F2-5",
-      "name": "산출물 CLI",
-      "description": "cheroki export <file_id> 명령으로 SRT+MD 일괄 생성",
-      "test": "CLI 실행 후 exports/ 디렉토리에 SRT+MD 파일 생성 확인",
+      "id": "F4-5",
+      "name": "Siltarae 연동 인터페이스",
+      "description": "최종 녹취록 → Siltarae Fragment 형식 변환 + 전송 어댑터 (설정 기반)",
+      "test": "Fragment 변환 로직 및 mock API 전송 테스트",
       "status": "pending"
     }
   ],
   "phase_0_completed": true,
-  "phase_1_completed": true
+  "phase_1_completed": true,
+  "phase_2_completed": true,
+  "phase_3_completed": false
 }

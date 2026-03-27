@@ -250,5 +250,18 @@ def watch(watch_dir: Path | None, config_path: Path | None) -> None:
         click.echo("\n감시 종료.")
 
 
+@main.command()
+@click.option("--config", "config_path", type=click.Path(exists=True, path_type=Path), default=None)
+def bot(config_path: Path | None) -> None:
+    """텔레그램 봇을 실행한다."""
+    from cheroki.config import get_config
+    from cheroki.telegram_bot import CherokiBot
+
+    config = get_config(config_path)
+    cheroki_bot = CherokiBot(config)
+    click.echo("텔레그램 봇 시작...")
+    cheroki_bot.run()
+
+
 if __name__ == "__main__":
     main()
