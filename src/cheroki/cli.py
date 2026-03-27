@@ -160,6 +160,64 @@ def correct(file_id: str, corrections_file: Path, config_path: Path | None) -> N
     click.echo(f"\n교정 완료: {len(corrections)}개 세그먼트 수정")
 
 
+@main.command(name="export")
+@click.argument("file_id")
+@click.option("--config", "config_path", type=click.Path(exists=True, path_type=Path), default=None)
+@click.option("--diarize/--no-diarize", default=False, help="화자 분리 수행")
+def export_cmd(file_id: str, config_path: Path | None, diarize: bool) -> None:
+    """전사 결과를 SRT + MD로 내보낸다."""
+    from cheroki.config import get_config
+    from cheroki.transcript_store import load_transcript
+    from cheroki.metadata import extract_metadata
+    from cheroki.exporter import save_srt, save_markdown
+
+    config = get_config(config_path)
+    transcripts_dir = Path(config["paths"]["transcripts"])
+    exports_dir = Path(config["paths"]["exports"])
+
+    # 최종본이 있으면 최종본, 없으면 원본 전사
+    final_path = transcripts_dir / f"{file_id}_final.transcript.json"
+    original_path = transcripts_dir / f"{file_id}.transcript.json"
+    transcript_path = final_path if final_path.exists() else original_path
+
+    if not transcript_path.exists():
+        click.echo(f"전사 결과를 찾을 수 없습니다: {file_id}", err=True)
+        raise SystemExit(1)
+
+    result = load_transcript(transcript_path)
+
+    # 화자 분리 (선택)
+    if diarize:
+        from cheroki.diarizer import diarize as run_diarize, assign_speakers
+        from cheroki.storage import load_metadata
+
+        # 원본 음성 경로 찾기
+        originals_dir = Path(config["paths"]["originals"])
+        meta_path = originals_dir / f"{file_id}.meta.json"
+        if meta_path.exists():
+            meta = load_metadata(meta_path)
+            audio_path = Path(meta["stored_path"])
+            speaker_segments = run_diarize(audio_path)
+            if speaker_segments:
+                result = assign_speakers(result, speaker_segments)
+                click.echo(f"화자 분리 완료: {len(set(s.speaker for s in speaker_segments))}명")
+            else:
+                click.echo("화자 분리 건너뜀 (pyannote 미설치 또는 오류)")
+        else:
+            click.echo("원본 메타데이터 없음 — 화자 분리 건너뜀")
+
+    # 메타데이터 추출
+    metadata = extract_metadata(file_id, source_file=result.source_file, full_text=result.full_text)
+
+    # SRT + MD 생성
+    srt_path = save_srt(result, exports_dir, file_id)
+    md_path = save_markdown(result, exports_dir, file_id, metadata=metadata)
+
+    click.echo(f"SRT: {srt_path}")
+    click.echo(f"MD:  {md_path}")
+    click.echo("산출물 생성 완료.")
+
+
 @main.command()
 @click.argument("watch_dir", type=click.Path(path_type=Path), default=None, required=False)
 @click.option("--config", "config_path", type=click.Path(exists=True, path_type=Path), default=None)
