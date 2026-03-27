@@ -1,49 +1,43 @@
 {
-  "phase": 1,
-  "title": "교정 루프",
+  "phase": 2,
+  "title": "산출물 생성",
   "features": [
     {
-      "id": "F1-1",
-      "name": "고유명사 사전",
-      "description": "dictionary/ 폴더의 YAML 파일에서 고유명사 목록 로드. 사전에 없는 단어 감지 기반 제공",
-      "test": "사전 로드 후 단어 조회, 전사 텍스트에서 미등록 고유명사 후보 추출",
+      "id": "F2-1",
+      "name": "SRT 자막 생성",
+      "description": "전사 결과 → 표준 SRT 자막 파일",
+      "test": "SRT 파일 생성 후 포맷 검증 (번호, 타임스탬프, 텍스트)",
       "status": "pending"
     },
     {
-      "id": "F1-2",
-      "name": "의심 구간 추출 (reviewer)",
-      "description": "전사 결과에서 낮은 confidence, 고유명사 미매칭, 짧은/불완전 세그먼트를 의심 구간으로 추출",
-      "test": "다양한 confidence의 세그먼트 입력 시 의심 구간만 정확히 필터링",
+      "id": "F2-2",
+      "name": "메타데이터 추출",
+      "description": "파일명/전사 텍스트에서 날짜, 장소, 참가자 자동 추출 (YAML frontmatter)",
+      "test": "다양한 입력에서 메타데이터 추출 확인",
       "status": "pending"
     },
     {
-      "id": "F1-3",
-      "name": "질문 목록 생성",
-      "description": "의심 구간에 대해 타임스탬프+전후 맥락을 포함한 교정 질문 목록 생성 (JSON)",
-      "test": "의심 구간 입력 시 질문 목록에 context_before, context_after, timestamp 포함 확인",
+      "id": "F2-3",
+      "name": "구획별 MD 생성",
+      "description": "타임스탬프+메타데이터+화자 포함 Markdown 문서",
+      "test": "MD 파일에 frontmatter, 타임스탬프, 텍스트 포함 확인",
       "status": "pending"
     },
     {
-      "id": "F1-4",
-      "name": "교정 입력 수신 및 반영 (corrector)",
-      "description": "사용자가 제출한 교정 데이터를 전사 결과에 반영하여 최종본 생성",
-      "test": "교정 적용 후 해당 세그먼트 텍스트가 변경되고 is_corrected 플래그 확인",
+      "id": "F2-4",
+      "name": "화자 분리 (diarization)",
+      "description": "pyannote-audio로 화자 구분, 전사 세그먼트에 화자 라벨 부착",
+      "test": "mock 기반 화자 라벨 할당 검증",
       "status": "pending"
     },
     {
-      "id": "F1-5",
-      "name": "교정 쌍 코퍼스 누적 (corpus)",
-      "description": "원본 전사와 교정 후 텍스트를 쌍으로 저장하여 학습 데이터 누적",
-      "test": "교정 후 corpus/ 디렉토리에 원본/교정 쌍 JSON 존재, 누적 카운트 증가",
-      "status": "pending"
-    },
-    {
-      "id": "F1-6",
-      "name": "교정 루프 CLI",
-      "description": "cheroki review <file_id> → 질문 목록 출력, cheroki correct <file_id> → 교정 적용",
-      "test": "CLI로 review/correct 실행 시 올바른 파일 생성",
+      "id": "F2-5",
+      "name": "산출물 CLI",
+      "description": "cheroki export <file_id> 명령으로 SRT+MD 일괄 생성",
+      "test": "CLI 실행 후 exports/ 디렉토리에 SRT+MD 파일 생성 확인",
       "status": "pending"
     }
   ],
-  "phase_0_completed": true
+  "phase_0_completed": true,
+  "phase_1_completed": true
 }
