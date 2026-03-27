@@ -1,52 +1,11 @@
 {
-  "phase": 3,
-  "title": "지능화 + 코퍼스 (Phase 3+5)",
-  "features": [
-    {
-      "id": "F3-1",
-      "name": "고유명사 사전 자동 구축",
-      "description": "교정 코퍼스에서 고유명사를 자동 추출하여 dictionary/에 누적",
-      "test": "교정 쌍에서 고유명사 추출 및 사전 반영 검증",
-      "status": "pending"
-    },
-    {
-      "id": "F3-2",
-      "name": "교정 패턴 학습",
-      "description": "이전 교정 이력을 참조하여 동일 오류 사전 감지 + 자동 교정 제안",
-      "test": "패턴 매칭 기반 자동 교정 제안 검증",
-      "status": "pending"
-    },
-    {
-      "id": "F3-3",
-      "name": "Hahnness vault 연동",
-      "description": "최종 MD를 vault의 적절한 폴더로 복사/라우팅",
-      "test": "MD 파일이 vault 경로에 복사되는지 검증",
-      "status": "pending"
-    },
-    {
-      "id": "F5-1",
-      "name": "코퍼스 데이터 패키징",
-      "description": "원본음성 + 틀린전사 + 교정전사를 하나의 패키지로",
-      "test": "패키지 구조 및 파일 무결성 검증",
-      "status": "pending"
-    },
-    {
-      "id": "F5-2",
-      "name": "메타데이터 태깅",
-      "description": "화자 나이, 방언, 주제 등 코퍼스 메타데이터",
-      "test": "태그 입력/저장/조회 검증",
-      "status": "pending"
-    },
-    {
-      "id": "F5-3",
-      "name": "데이터셋 내보내기",
-      "description": "JSON Lines / CSV / HuggingFace 형식 내보내기 + CLI",
-      "test": "각 형식별 내보내기 결과 검증",
-      "status": "pending"
-    }
-  ],
+  "phase": "all_complete",
+  "title": "전체 완료",
+  "features": [],
   "phase_0_completed": true,
   "phase_1_completed": true,
   "phase_2_completed": true,
-  "phase_4_completed": true
+  "phase_3_completed": true,
+  "phase_4_completed": true,
+  "phase_5_completed": true
 }
