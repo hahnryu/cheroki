@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Venv
+.venv/
+venv/
+env/
+
+# uv
+.python-version
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env (secrets)
+.env
+.env.local
+
+# Test / cache
+.pytest_cache/
+.coverage
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+
+# Cheroki data (오디오, 녹취, DB)
+data/
+
+# Local Bot API Server storage (Docker 볼륨이지만 혹시 모를 대비)
+telegram-bot-api-data/
+
+# Logs
+*.log
+logs/
