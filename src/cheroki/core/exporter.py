@@ -24,29 +24,72 @@ def to_markdown(
     *,
     title: str | None = None,
 ) -> str:
+    """단순 Markdown. 라이브러리 사용자가 빠르게 호출할 때."""
+    frontmatter = {"title": title or "녹취"}
+    return to_markdown_with_frontmatter(utterances, metadata, frontmatter=frontmatter)
+
+
+def to_markdown_with_frontmatter(
+    utterances: list[Utterance],
+    metadata: TranscriptionMetadata,
+    *,
+    frontmatter: dict,
+) -> str:
+    """확장 frontmatter를 받는 Markdown 렌더러.
+
+    내부 기본값(duration, speakers, language, model, provider, created)이 먼저 깔리고,
+    frontmatter 인자가 그 위를 덮어쓴다. 값이 None이면 해당 키는 출력에서 생략.
+    """
     created = datetime.now(UTC).isoformat(timespec="seconds")
-    front = [
-        "---",
-        f"title: {title or '녹취'}",
-        f"duration: {_hms(metadata.duration_sec)}",
-        f"speakers: {metadata.speaker_count}",
-        f"language: {metadata.language}",
-        f"model: {metadata.model}",
-        f"provider: {metadata.provider}",
-        f"created: {created}",
-        "---",
-        "",
-    ]
-    body = ["## 전사", ""]
+    fields: dict = {
+        "title": "녹취",
+        "duration": _hms(metadata.duration_sec),
+        "speakers": metadata.speaker_count,
+        "language": metadata.language,
+        "model": metadata.model,
+        "provider": metadata.provider,
+        "created": created,
+    }
+    fields.update({k: v for k, v in frontmatter.items() if v is not None})
+
+    lines = ["---"]
+    for key, value in fields.items():
+        if value is None:
+            continue
+        lines.append(f"{key}: {_yaml_scalar(value)}")
+    lines.append("---")
+    lines.append("")
+    lines.append("## 전사")
+    lines.append("")
+
     for u in utterances:
-        body.append(f"**[S{u.speaker} {_hms(u.start)}]** {u.text}")
-        body.append("")
-    return "\n".join(front + body)
+        lines.append(f"**[S{u.speaker} {_hms(u.start)}]** {u.text}")
+        lines.append("")
+
+    return "\n".join(lines)
 
 
 def to_txt(utterances: list[Utterance]) -> str:
     """플레인 텍스트. 화자/타임스탬프 없음, 줄바꿈으로만 구분."""
     return "\n".join(u.text for u in utterances) + "\n"
+
+
+def _yaml_scalar(value) -> str:
+    """YAML 스칼라 인코딩. 꼭 필요할 때만 따옴표."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    s = str(value)
+    needs_quote = (
+        "\n" in s
+        or s != s.strip()
+        or (s and s[0] in "!&*>|%@`\"'#[{")
+        or s.lower() in {"null", "true", "false", "yes", "no", "on", "off", "~"}
+    )
+    if needs_quote:
+        return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    return s
 
 
 def _srt_ts(seconds: float) -> str:

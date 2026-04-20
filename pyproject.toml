@@ -12,6 +12,7 @@ dependencies = [
     "aiogram>=3.4.0",
     "httpx>=0.27.0",
     "python-dotenv>=1.0.0",
+    "unidecode>=1.3.0",
 ]
 
 [project.optional-dependencies]
@@ -22,6 +23,7 @@ dev = [
 ]
 
 [project.scripts]
+cheroki = "cheroki.interfaces.cli:main"
 cheroki-bot = "cheroki.interfaces.telegram.__main__:main"
 
 [build-system]

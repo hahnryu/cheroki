@@ -127,10 +127,13 @@ cheroki/
 ├── .env.example
 ├── .gitignore
 ├── README.md
+├── CLAUDE.md
 ├── docker-compose.yml
 ├── src/cheroki/
 │   ├── __init__.py              # 공개 API
 │   ├── config.py
+│   ├── naming.py                # 캡션 파싱, romanize, slug
+│   ├── migrate.py               # 레이아웃 마이그레이션
 │   ├── core/
 │   │   ├── __init__.py
 │   │   ├── types.py
@@ -142,9 +145,11 @@ cheroki/
 │   │       └── deepgram.py
 │   ├── storage/
 │   │   ├── base.py
+│   │   ├── ids.py
 │   │   ├── sqlite_store.py
 │   │   └── fs_store.py
 │   └── interfaces/
+│       ├── cli.py               # cheroki {transcribe,bot,migrate,info}
 │       └── telegram/
 │           ├── __main__.py
 │           ├── bot.py
@@ -152,8 +157,12 @@ cheroki/
 │           └── formatters.py
 ├── tests/
 ├── data/                        # gitignore
-│   ├── uploads/
-│   ├── exports/
+│   ├── YYMMDD/                  # 녹음 날짜 폴더
+│   │   ├── <slug>_raw.m4a
+│   │   ├── <slug>_raw.srt
+│   │   ├── <slug>_raw.md
+│   │   ├── <slug>_raw.txt
+│   │   └── <slug>_raw.json
 │   └── siltare.db
 └── docs/
 ```
@@ -301,7 +310,20 @@ LOG_LEVEL=INFO
 
 ## 11. 로드맵
 
-**1단계 MVP** (이 기획안) — 녹취 + SRT/MD/TXT + Telegram 봇
-**2단계** — 화자 이름 치환, 캡션 파싱, AI 교정 루프, 허용 ID 슬래시 커맨드
-**3단계** — 실타래 본체 Graphiti 연동, vault 싱크, PostgreSQL 이관
-**4단계** — 하회 어르신 아카이브, 구술사 전집, 파인튜닝 데이터셋 공개
+**1단계 MVP** (완료 · 2026-04-20) — 녹취 + SRT/MD/TXT + Telegram 봇 + CLI + 네이밍 규약(YYMMDD/<slug>_raw.*)
+
+**1.5단계** (진행 중) — Local Bot API 2GB 모드 안정화 (docker --local + bind mount + is_local=True + uid 이슈 해결)
+
+**2단계** — 별도 모듈로 cheroki 위에 얹힘:
+- **수정 모듈**: 전사 오류 교정 루프 (Claude 대화형). 산출물 `<slug>_edited.md`
+- **이름지정 모듈**: S0/S1을 실제 이름으로 치환. 산출물 `<slug>_named.md`
+- **메타 강화 모듈**: 캡션에서 장소 추출, 세션 타이틀 정규화
+
+이들은 cheroki의 `data/YYMMDD/<slug>_raw.*`를 입력으로 받아 같은 폴더에 접미어 다른 파일을 만든다. cheroki 본체는 건드리지 않음.
+
+**3단계** — 실타래 본체 연동:
+- Graphiti 지식 그래프에 `_named.md` 또는 `_edited.md` 자동 투입
+- Hahnness vault 싱크 도구 (`data/YYMMDD/*.md` → vault의 해당 폴더)
+- PostgreSQL 이관 검토 (실타래 본체 DB와 공유)
+
+**4단계** — 하회 어르신 인터뷰 아카이브 100+, 류중하 학문 구술사 전집, 한국어 STT 파인튜닝 데이터셋 오픈소스화

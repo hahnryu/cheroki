@@ -2,64 +2,88 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import date
 from pathlib import Path
 
 from cheroki.core.result import TranscriptionResult
+from cheroki.naming import session_folder_name
 
 logger = logging.getLogger(__name__)
 
 
 class FileStore:
-    """파일시스템 기반 원본/산출물 저장."""
+    """파일시스템 기반 원본/산출물 저장.
+
+    레이아웃:
+        DATA_DIR/YYMMDD/<slug>_raw.<audio_ext>   원본 오디오
+        DATA_DIR/YYMMDD/<slug>_raw.srt           자막
+        DATA_DIR/YYMMDD/<slug>_raw.md            Markdown 전사본 (frontmatter 포함)
+        DATA_DIR/YYMMDD/<slug>_raw.txt           플레인 텍스트
+        DATA_DIR/YYMMDD/<slug>_raw.json          Deepgram 원본 응답
+
+    `_raw` 접미어는 1차 채록 산출물임을 표시한다. 이후 교정·이름지정 모듈이 만드는
+    수정본은 다른 접미어(`_edited`, `_named` 등)를 쓴다.
+    """
 
     def __init__(self, data_dir: str | Path) -> None:
         self.data_dir = Path(data_dir)
-        self.uploads_dir = self.data_dir / "uploads"
-        self.exports_dir = self.data_dir / "exports"
-        self.uploads_dir.mkdir(parents=True, exist_ok=True)
-        self.exports_dir.mkdir(parents=True, exist_ok=True)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+
+    def session_dir(self, recording_date: date) -> Path:
+        d = self.data_dir / session_folder_name(recording_date)
+        d.mkdir(parents=True, exist_ok=True)
+        return d
 
     # ---------- 경로 계산 ----------
 
-    def upload_path(self, record_id: str, suffix: str) -> Path:
-        """원본 오디오 저장 경로. suffix는 확장자(`.m4a`)."""
+    def audio_path(self, recording_date: date, slug: str, suffix: str) -> Path:
         if suffix and not suffix.startswith("."):
             suffix = f".{suffix}"
-        return self.uploads_dir / f"{record_id}{suffix}"
+        return self.session_dir(recording_date) / f"{slug}_raw{suffix}"
 
-    def srt_path(self, record_id: str) -> Path:
-        return self.exports_dir / f"{record_id}.srt"
+    def srt_path(self, recording_date: date, slug: str) -> Path:
+        return self.session_dir(recording_date) / f"{slug}_raw.srt"
 
-    def md_path(self, record_id: str) -> Path:
-        return self.exports_dir / f"{record_id}.md"
+    def md_path(self, recording_date: date, slug: str) -> Path:
+        return self.session_dir(recording_date) / f"{slug}_raw.md"
 
-    def txt_path(self, record_id: str) -> Path:
-        return self.exports_dir / f"{record_id}.txt"
+    def txt_path(self, recording_date: date, slug: str) -> Path:
+        return self.session_dir(recording_date) / f"{slug}_raw.txt"
 
-    def raw_json_path(self, record_id: str) -> Path:
-        return self.exports_dir / f"{record_id}.raw.json"
+    def raw_json_path(self, recording_date: date, slug: str) -> Path:
+        return self.session_dir(recording_date) / f"{slug}_raw.json"
 
     # ---------- 산출물 쓰기 ----------
 
     def write_exports(
         self,
-        record_id: str,
+        recording_date: date,
+        slug: str,
         result: TranscriptionResult,
         *,
-        title: str | None = None,
+        frontmatter_extra: dict | None = None,
     ) -> dict[str, Path]:
-        srt = self.srt_path(record_id)
-        md = self.md_path(record_id)
-        txt = self.txt_path(record_id)
-        raw = self.raw_json_path(record_id)
+        srt = self.srt_path(recording_date, slug)
+        md = self.md_path(recording_date, slug)
+        txt = self.txt_path(recording_date, slug)
+        raw = self.raw_json_path(recording_date, slug)
 
-        srt.write_text(result.to_srt(), encoding="utf-8")
-        md.write_text(result.to_markdown(title=title), encoding="utf-8")
-        txt.write_text(result.to_txt(), encoding="utf-8")
+        from cheroki.core.exporter import to_markdown_with_frontmatter, to_srt, to_txt
+
+        srt.write_text(to_srt(result.utterances), encoding="utf-8")
+        md.write_text(
+            to_markdown_with_frontmatter(
+                result.utterances,
+                result.metadata,
+                frontmatter=frontmatter_extra or {},
+            ),
+            encoding="utf-8",
+        )
+        txt.write_text(to_txt(result.utterances), encoding="utf-8")
         raw.write_text(
             json.dumps(result.raw_response, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
 
-        logger.info("산출물 기록: %s (4개 파일)", record_id)
+        logger.info("산출물 기록: %s / %s (4개 파일)", session_folder_name(recording_date), slug)
         return {"srt": srt, "md": md, "txt": txt, "raw": raw}

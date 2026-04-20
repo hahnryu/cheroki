@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -10,6 +11,11 @@ from aiogram.types import FSInputFile, Message
 
 from cheroki.core.transcribe import transcribe_audio
 from cheroki.interfaces.telegram import formatters as fmt
+from cheroki.naming import (
+    build_slug,
+    file_format_from_name,
+    parse_recording_date,
+)
 
 if TYPE_CHECKING:
     from cheroki.config import Config
@@ -113,7 +119,12 @@ async def handle_media(
 
     tg_file_id, file_name, file_size, suffix = media
     caption = message.caption
+    received_at = message.date or datetime.now(UTC)
 
+    recording_date = parse_recording_date(caption, fallback=received_at)
+    file_format = file_format_from_name(file_name) or suffix
+
+    # 레코드 먼저 생성 (short ID 확보)
     rec_id = db.create_pending(
         tg_user_id=message.from_user.id,
         tg_username=message.from_user.username,
@@ -121,14 +132,22 @@ async def handle_media(
         tg_message_id=message.message_id,
         file_name=file_name,
         file_size_bytes=file_size,
+        file_format=file_format,
         caption=caption,
         session_title=caption,
+        recording_date=recording_date,
+        source="telegram",
+        received_at=received_at,
     )
+
+    # 슬러그 계산 (ID를 fallback으로 쓰기 위해 이 시점)
+    slug = build_slug(caption=caption, original_filename=file_name, record_id=rec_id)
+    db.set_slug(rec_id, slug)
 
     await message.answer(fmt.received_message(rec_id, file_name, file_size))
 
     try:
-        audio_path = fs.upload_path(rec_id, suffix)
+        audio_path = fs.audio_path(recording_date, slug, suffix)
         logger.info("다운로드 시작: %s -> %s", tg_file_id, audio_path)
         await bot.download(tg_file_id, destination=audio_path)
         db.set_audio_path(rec_id, audio_path)
@@ -136,7 +155,16 @@ async def handle_media(
 
         result = await transcribe_audio(audio_path)
 
-        paths = fs.write_exports(rec_id, result, title=caption)
+        frontmatter = _build_frontmatter(
+            rec_id=rec_id,
+            slug=slug,
+            recording_date=recording_date.isoformat(),
+            caption=caption,
+            file_name=file_name,
+            file_format=file_format,
+            received_at=received_at,
+        )
+        paths = fs.write_exports(recording_date, slug, result, frontmatter_extra=frontmatter)
         db.complete(
             rec_id,
             result=result,
@@ -153,6 +181,30 @@ async def handle_media(
         logger.exception("처리 실패: %s", rec_id)
         db.fail(rec_id, str(exc))
         await message.answer(fmt.failed_message(rec_id, str(exc)))
+
+
+def _build_frontmatter(
+    *,
+    rec_id: str,
+    slug: str,
+    recording_date: str,
+    caption: str | None,
+    file_name: str | None,
+    file_format: str | None,
+    received_at: datetime,
+) -> dict:
+    title = caption or file_name or slug
+    return {
+        "title": title,
+        "recording_date": recording_date,
+        "record_id": rec_id,
+        "slug": slug,
+        "source": "telegram",
+        "caption": caption,
+        "original_filename": file_name,
+        "file_format": file_format,
+        "received_at": received_at.isoformat(timespec="seconds"),
+    }
 
 
 async def _send_exports(message: Message, record: dict) -> None:
