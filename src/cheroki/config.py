@@ -25,6 +25,7 @@ class Config:
     telegram_api_id: str
     telegram_api_hash: str
     local_api_url: str
+    local_api_files_dir: str
 
     deepgram_api_key: str
     deepgram_model: str
@@ -64,6 +65,7 @@ def load_config() -> Config:
         telegram_api_id=os.environ.get("TELEGRAM_API_ID", ""),
         telegram_api_hash=os.environ.get("TELEGRAM_API_HASH", ""),
         local_api_url=os.environ.get("LOCAL_API_URL", "http://localhost:8081"),
+        local_api_files_dir=os.environ.get("LOCAL_API_FILES_DIR", "").strip(),
         deepgram_api_key=os.environ.get("DEEPGRAM_API_KEY", ""),
         deepgram_model=os.environ.get("DEEPGRAM_MODEL", "nova-2"),
         elevenlabs_api_key=os.environ.get("ELEVENLABS_API_KEY", ""),
