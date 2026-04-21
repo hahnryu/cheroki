@@ -38,9 +38,16 @@ env/
 .DS_Store
 Thumbs.db
 
-# Env (secrets)
+# Env (secrets) — 절대 커밋 금지. .env.example만 공개.
 .env
-.env.local
+.env.*
+!.env.example
+*.secret
+*.secrets
+secrets/
+*.key
+*.pem
+credentials.json
 
 # Test / cache
 .pytest_cache/
@@ -55,6 +62,11 @@ data/
 # Local Bot API Server storage (Docker 볼륨이지만 혹시 모를 대비)
 telegram-bot-api-data/
 
-# Logs
+# Logs & runtime state
 *.log
 logs/
+bot.pid
+*.pid
+
+# Claude Code local settings (개인 장비 고유 설정)
+.claude/settings.local.json
