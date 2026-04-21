@@ -104,6 +104,46 @@ DATA_DIR/YYMMDD/<slug>_raw.{m4a,srt,md,txt,json}
 
 ---
 
+## 2026-04-21 — provider 비교 실험, Scribe 확정
+
+### 아침 세션: Task 18 provider 비교 + Scribe 확정
+
+**목표**: 4/20에 드러난 Deepgram 한국어 품질 이슈를 두고, ElevenLabs Scribe v2와 비교해 기본 provider 결정.
+
+**구현**:
+- `core/transcribers/scribe.py` — ElevenLabs `/v1/speech-to-text` 래퍼. scribe_v2 + diarize + timestamps_granularity=word. 응답의 word 배열을 speaker_id 경계로 Utterance에 묶고, 단어들의 평균 logprob을 exp하여 [0,1] confidence로 변환. audio_event 토큰은 speaker 판단에서 제외.
+- httpx 함정: AsyncClient에서 `data=list[tuple]`로 multipart form을 넘기면 sync stream 경로로 빠져 `Attempted to send an sync request with an AsyncClient instance` 에러. `data=dict` + dict value로 list를 주는 방식으로 해결.
+- `scripts/compare_providers.py` — 파일 하나를 받아 Deepgram과 Scribe를 `asyncio.gather`로 병렬 호출, `<stem>.{provider}.{srt,md,txt,raw.json}`로 저장. 정식 저장 파이프라인·SQLite는 건드리지 않는 사이드 트랙.
+- 단위 테스트 7개 (speaker 매핑 안정성·audio_event 스킵·confidence 클램프·빈 응답 등).
+
+**실험 결과 (rwgr66_raw.ogg, 25분)**:
+| 항목 | Deepgram Nova-2 | Scribe v2 |
+|---|---|---|
+| 처리 시간 | 9.0s | 68.6s |
+| 화자 수 | 3 | 3 |
+| txt 크기 | 15.3 KB | 22.0 KB |
+| utterance 수 | 426 | 331 (내 grouping 기준 차이) |
+
+- Scribe가 영문 고유명사(UNESCO) 정확 표기, 문장 단위 묶기 자연스러움, 리액션·추임새 포착("내가, 내가, 내가 대충 만들었거든?") 등에서 우위.
+- Deepgram은 속도(7.6배 빠름)와 자체 utterance 구획 제공이 장점.
+- JOURNAL 4/20 밤 세션에 기록된 오인식 단어(bstage, 야반스, 풍류, 하회 등)는 rwgr66엔 없음. 그 케이스는 같은 날 `0420_jeonbeomseon_wf_hoeyi_m4a`에서 나온 걸로 추정. 추후 재검증 여지.
+
+**결정**: 기본 provider = Scribe. CLAUDE.md 규칙상 `config.yaml`은 금지이므로 `.env`에 `STT_PROVIDER` 변수 추가, `_default_transcriber()`에서 분기. `STT_PROVIDER=deepgram`으로 언제든 되돌릴 수 있음.
+
+**배포**:
+- tar 패키징 시 `.env` 명시 제외(4/20 밤 재발 방지 이슈).
+- 서버 `~/projects/cheroki`에 코드 전송, `.env`에 `STT_PROVIDER=scribe` + `ELEVENLABS_API_KEY` append (stdin 경유, ps/history 노출 없음).
+- 기존 봇(PID 26394) SIGTERM 후 새 봇(PID 31179) 클라우드 Bot API 모드 유지로 재기동. 로그 확인 완료.
+
+**메트릭**:
+- 52 테스트 통과 (+11: scribe 파싱 7 + provider 분기 4)
+- 로컬 커밋: `c463a01` (Scribe transcriber) + (후속, 이 세션)
+- ElevenLabs 호출 비용: rwgr66 1건 ~240원 추정
+
+**다음**: 사용자 요청에 따라 Task 17(Local Bot API 2GB 모드) 착수 — docker-compose `--local` + bind mount + aiogram `local_mode=True` + uid 정합.
+
+---
+
 ## 로드맵 (요약)
 
 - **Phase 1 (끝남)**: MVP — 전사 + SRT/MD/TXT + Telegram 봇 + CLI + 네이밍 규약

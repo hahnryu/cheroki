@@ -5,7 +5,6 @@ from pathlib import Path
 
 from cheroki.core.result import TranscriptionResult
 from cheroki.core.transcribers.base import Transcriber
-from cheroki.core.transcribers.deepgram import DeepgramTranscriber
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +21,7 @@ async def transcribe_audio(
     audio_path:
         파일 경로. 상대/절대 모두 가능.
     transcriber:
-        구현체를 주입. 없으면 환경변수에서 Deepgram 설정을 읽어 기본 구현체 사용.
+        구현체를 주입. 없으면 .env의 STT_PROVIDER에 따라 Scribe 또는 Deepgram 사용.
     """
     path = Path(audio_path)
     if not path.exists():
@@ -47,7 +46,24 @@ def _default_transcriber() -> Transcriber:
     from cheroki.config import load_config
 
     cfg = load_config()
-    return DeepgramTranscriber(
-        api_key=cfg.deepgram_api_key,
-        model=cfg.deepgram_model,
+    provider = cfg.stt_provider
+
+    if provider == "scribe":
+        from cheroki.core.transcribers.scribe import ScribeTranscriber
+
+        return ScribeTranscriber(
+            api_key=cfg.elevenlabs_api_key,
+            model=cfg.elevenlabs_model,
+        )
+
+    if provider == "deepgram":
+        from cheroki.core.transcribers.deepgram import DeepgramTranscriber
+
+        return DeepgramTranscriber(
+            api_key=cfg.deepgram_api_key,
+            model=cfg.deepgram_model,
+        )
+
+    raise ValueError(
+        f"알 수 없는 STT_PROVIDER: {provider!r} (허용: scribe, deepgram)"
     )

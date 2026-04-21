@@ -53,17 +53,18 @@ class ScribeTranscriber:
         audio_bytes = await asyncio.to_thread(audio_path.read_bytes)
         content_type = mimetypes.guess_type(audio_path.name)[0] or "application/octet-stream"
 
-        # httpx multipart: data는 (name, value) 튜플 리스트로 같은 키 반복 가능
-        form: list[tuple[str, str]] = [
-            ("model_id", self.model),
-            ("language_code", self.language),
-            ("diarize", "true"),
-            ("timestamps_granularity", "word"),
-        ]
+        # httpx multipart: list[tuple] 로 주면 AsyncClient 경로가 sync stream으로 빠지는
+        # 이슈가 있어 dict로 전달한다. 같은 키 반복은 dict value에 list를 담으면 된다.
+        form: dict[str, str | list[str]] = {
+            "model_id": self.model,
+            "language_code": self.language,
+            "diarize": "true",
+            "timestamps_granularity": "word",
+        }
         if self.num_speakers is not None:
-            form.append(("num_speakers", str(self.num_speakers)))
-        for term in self.keyterms:
-            form.append(("keyterms", term))
+            form["num_speakers"] = str(self.num_speakers)
+        if self.keyterms:
+            form["keyterms"] = list(self.keyterms)
 
         files = {"file": (audio_path.name, audio_bytes, content_type)}
         headers = {"xi-api-key": self.api_key}

@@ -32,6 +32,8 @@ class Config:
     elevenlabs_api_key: str
     elevenlabs_model: str
 
+    stt_provider: str
+
     allowed_user_ids: frozenset[int]
 
     data_dir: Path
@@ -66,6 +68,7 @@ def load_config() -> Config:
         deepgram_model=os.environ.get("DEEPGRAM_MODEL", "nova-2"),
         elevenlabs_api_key=os.environ.get("ELEVENLABS_API_KEY", ""),
         elevenlabs_model=os.environ.get("ELEVENLABS_MODEL", "scribe_v2"),
+        stt_provider=os.environ.get("STT_PROVIDER", "scribe").strip().lower(),
         allowed_user_ids=allowed_ids,
         data_dir=data_dir,
         db_path=db_path,
