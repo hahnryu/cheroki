@@ -28,7 +28,7 @@ curl "https://api.telegram.org/bot$BOT_TOKEN/logOut"
 ```bash
 ssh hahoe-genesis
 cd ~/projects
-git clone <repo-url> cheroki
+git clone https://github.com/hahnryu/cheroki.git
 cd cheroki
 
 # 환경변수
