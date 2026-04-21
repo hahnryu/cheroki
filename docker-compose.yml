@@ -3,26 +3,24 @@ services:
     image: aiogram/telegram-bot-api:latest
     container_name: cheroki-telegram-api
     restart: unless-stopped
-    # --local: file_path에 HTTP URL 대신 서버 절대 경로를 돌려준다.
-    #           bot.download()가 그 경로를 읽어 복사하므로 호스트·컨테이너 간
-    #           파일 시스템 공유가 전제. 아래 bind mount + user uid 정합.
-    command:
-      - --local
-      - --http-port=8081
-      - --api-id=${TELEGRAM_API_ID}
-      - --api-hash=${TELEGRAM_API_HASH}
-      - --dir=/var/lib/telegram-bot-api
-      - --temp-dir=/tmp/telegram-bot-api
-      - --verbosity=1
+    # 이미지 entrypoint는 자체 env 변수(TELEGRAM_*)를 읽어 CUSTOM_ARGS를
+    # 구성하므로 compose의 `command`는 무시된다. umask 022를 앞에 걸어
+    # 새로 생성되는 미디어 파일이 644 (other 읽기 가능)가 되도록 entrypoint
+    # 래핑. 그래야 bind mount 반대쪽 호스트 봇(uid 1000)이 파일을 읽는다.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - "umask 022 && exec /docker-entrypoint.sh"
     environment:
       TELEGRAM_API_ID: ${TELEGRAM_API_ID}
       TELEGRAM_API_HASH: ${TELEGRAM_API_HASH}
+      TELEGRAM_LOCAL: "1"
+      TELEGRAM_VERBOSITY: "1"
     # bind mount: 호스트 경로와 컨테이너 경로가 같은 실체.
-    # 호스트 쪽 봇 프로세스(uid 1000)가 파일을 읽고 복사해야 하므로
-    # 아래 user와 정합을 맞춰 컨테이너도 동일 uid로 쓰게 한다.
+    # 이미지 entrypoint가 root로 chown한 뒤 내부 telegram-bot-api(uid 101)로
+    # exec. 컨테이너가 쓰는 파일은 호스트에서 uid 101(messagebus) 소유로 보이지만
+    # umask 022로 644 퍼미션이라 봇(hahnryu)이 읽을 수 있음.
     volumes:
       - ./data/tg-api:/var/lib/telegram-bot-api
-    user: "${UID:-1000}:${GID:-1000}"
-    # 외부 노출 금지. 봇이 같은 호스트의 localhost로만 접근한다.
     ports:
       - "127.0.0.1:8081:8081"
