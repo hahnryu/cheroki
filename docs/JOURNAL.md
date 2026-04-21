@@ -142,6 +142,43 @@ DATA_DIR/YYMMDD/<slug>_raw.{m4a,srt,md,txt,json}
 
 **다음**: 사용자 요청에 따라 Task 17(Local Bot API 2GB 모드) 착수 — docker-compose `--local` + bind mount + aiogram `local_mode=True` + uid 정합.
 
+### 오후 세션: Task 17 Local Bot API 2GB 모드 전환
+
+**목표**: Telegram 20MB 한도 우회. Local Bot API Server 컨테이너를 `--local`로 돌리고, 봇이 컨테이너 저장 파일을 호스트에서 직접 읽도록 bind mount + aiogram 경로 매핑.
+
+**구현 변경**:
+- `docker-compose.yml`: named volume → `./data/tg-api` bind mount. 127.0.0.1:8081로 포트 제한(외부 차단).
+- `config.Config.local_api_files_dir`: 호스트의 bind mount target 경로 필드.
+- `interfaces/telegram/bot.py`: `TelegramAPIServer.from_base(..., is_local=True, wrap_local_file=SimpleFilesPathWrapper(server=/var/lib/telegram-bot-api, local=호스트경로))`. 봇이 `getFile` 응답의 컨테이너 내부 경로를 호스트 경로로 변환해 읽음.
+- `scripts/announce.py`: 허용 사용자 전원에게 Telegram sendMessage. 봇이 내려가 있어도 작동(API 직접 호출). 배포·장애·모드 전환 공지용.
+
+**시행착오 2가지 (JOURNAL 예언대로 uid 이슈)**:
+1. **compose의 `command:` 리스트를 entrypoint가 무시** — `aiogram/telegram-bot-api` 이미지의 `/docker-entrypoint.sh`가 자체적으로 `TELEGRAM_*` env 변수만 읽어 CUSTOM_ARGS 구성. `--local` 플래그는 `TELEGRAM_LOCAL=1` env로 활성화해야 함. compose 로그에 `--local`이 안 찍혀서 발견.
+2. **컨테이너가 쓰는 파일이 600 (umask 077)** — bind mount로 호스트에 노출돼도 봇(다른 uid)이 못 읽음. `entrypoint:` 오버라이드로 `umask 022 && exec /docker-entrypoint.sh` 래핑 → 미디어 파일 644로 생성, other(봇) 읽기 OK.
+
+**우연의 행운**: telegram-bot-api가 세션 디렉토리(`<bot_token>/`)를 `drwxr-x---` (750)로 만듦. 호스트에서 `messagebus:lxd` 소유로 보이는데 hahnryu가 이미 **lxd 그룹 멤버**라 group r-x로 접근 가능. ACL 추가 설정 불필요.
+
+**검증**:
+- 컨테이너 cmdline에 `--local --verbosity=1` 확인.
+- `__umask_test` 파일 644 생성, bind mount 양쪽에서 동일하게 보임.
+- 봇 로그: `Local Bot API 서버 사용: http://localhost:8081 (files: /var/lib/telegram-bot-api ↔ /home/hahnryu/projects/cheroki/data/tg-api)` + `Start polling`.
+- `announce.py --prefer-local`로 로컬 서버 경유 sendMessage 200 OK → 공지 2회차 전달.
+
+**공지 흐름**:
+1. 전환 직전 (봇 클라우드 모드 살아있을 때): "🔧 봇 업데이트: 2GB 모드 전환 중..." 클라우드 API로 발송.
+2. Telegram `logOut` → docker compose down → named volume 삭제 → bind mount 준비 → compose up (`--local`) → 봇 재기동.
+3. 전환 완료: "✅ 2GB 모드 전환 완료..." 로컬 서버로 발송 (local 가동 확인 겸).
+
+**상태**:
+- 서버 봇 PID 37248, Local Bot API 모드, 2GB 제한 활성.
+- 테스트 대기: 20MB 초과 파일을 사용자가 전송해 end-to-end 확인 필요.
+- 커밋 `c5a1ca5` + `918acf1` (compose 수정).
+- 52 테스트 통과 유지.
+
+**남은 관찰**:
+- 이중 저장 (Docker bind mount의 원본 + 봇이 `data/YYMMDD/`로 복사한 사본). 디스크 배증. 필요시 `bot.delete_file()` 후처리 추가 (Phase 2).
+- 운영 관례로 systemd 유닛 도입은 여전히 미룸 (현재 nohup + bot.pid).
+
 ---
 
 ## 로드맵 (요약)
