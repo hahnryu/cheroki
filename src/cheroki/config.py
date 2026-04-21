@@ -29,6 +29,9 @@ class Config:
     deepgram_api_key: str
     deepgram_model: str
 
+    elevenlabs_api_key: str
+    elevenlabs_model: str
+
     allowed_user_ids: frozenset[int]
 
     data_dir: Path
@@ -61,6 +64,8 @@ def load_config() -> Config:
         local_api_url=os.environ.get("LOCAL_API_URL", "http://localhost:8081"),
         deepgram_api_key=os.environ.get("DEEPGRAM_API_KEY", ""),
         deepgram_model=os.environ.get("DEEPGRAM_MODEL", "nova-2"),
+        elevenlabs_api_key=os.environ.get("ELEVENLABS_API_KEY", ""),
+        elevenlabs_model=os.environ.get("ELEVENLABS_MODEL", "scribe_v2"),
         allowed_user_ids=allowed_ids,
         data_dir=data_dir,
         db_path=db_path,
