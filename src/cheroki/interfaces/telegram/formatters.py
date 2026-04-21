@@ -38,10 +38,66 @@ def not_allowed_message() -> str:
     return "죄송합니다. 이 봇은 초대받은 사용자만 사용할 수 있습니다."
 
 
-def received_message(record_id: str, file_name: str | None, size_bytes: int | None) -> str:
-    size_str = f" · {size_bytes / 1e6:.1f} MB" if size_bytes else ""
-    name_line = f"\n파일: {file_name}" if file_name else ""
-    return f"받았습니다. ID: {record_id}{name_line}{size_str}\n처리 중..."
+def received_message(
+    record_id: str,
+    file_name: str | None,
+    size_bytes: int | None,
+    duration_sec: int | None = None,
+    storage_rel_path: str | None = None,
+) -> str:
+    meta_parts: list[str] = []
+    if file_name:
+        meta_parts.append(file_name)
+    if size_bytes:
+        meta_parts.append(f"{size_bytes / 1e6:.1f} MB")
+    if duration_sec:
+        meta_parts.append(f"약 {fmt_hms(duration_sec)}")
+    meta_line = f"파일: {' · '.join(meta_parts)}" if meta_parts else ""
+    storage_line = f"저장: {storage_rel_path}" if storage_rel_path else ""
+
+    lines = [f"[ 받음 ]  ID: {record_id}"]
+    if meta_line:
+        lines.append(meta_line)
+    if storage_line:
+        lines.append(storage_line)
+    lines.append("Scribe v2로 전사 시작합니다.")
+    return "\n".join(lines)
+
+
+def status_downloading(elapsed_sec: float | None = None) -> str:
+    if elapsed_sec is None:
+        return "[ 다운로드 ] 시작"
+    return f"[ 다운로드 ] {int(elapsed_sec)}초 경과"
+
+
+def status_downloaded(elapsed_sec: float) -> str:
+    return f"[ 다운로드 ] 완료 ({int(elapsed_sec)}초)"
+
+
+def status_transcribing(elapsed_sec: float | None = None) -> str:
+    if elapsed_sec is None:
+        return "[ 전사 ] Scribe v2 호출 중"
+    return f"[ 전사 ] {int(elapsed_sec)}초 경과"
+
+
+def status_transcribed(elapsed_sec: float, result: TranscriptionResult) -> str:
+    return (
+        f"[ 전사 ] 완료 ({int(elapsed_sec)}초) · "
+        f"{fmt_hms(result.duration_sec)} · 화자 {result.speaker_count}명 · "
+        f"발화 {len(result.utterances)}개"
+    )
+
+
+def status_exporting() -> str:
+    return "[ 저장 ] SRT / MD / TXT 생성 중"
+
+
+def status_sending() -> str:
+    return "[ 전송 ] 파일 보내는 중"
+
+
+def status_all_done() -> str:
+    return "[ 완료 ]"
 
 
 def completed_message(record_id: str, result: TranscriptionResult, caption: str | None = None) -> str:

@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
+from collections.abc import Callable
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from aiogram import Bot, F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart
 from aiogram.types import FSInputFile, Message
 
@@ -25,6 +30,57 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 router = Router(name="cheroki")
+
+_TICK_INTERVAL_SEC = 7.0
+
+
+async def _safe_edit(msg: Message, text: str) -> None:
+    """같은 내용으로 edit하면 Telegram이 400을 주므로 조용히 삼킨다."""
+    try:
+        await msg.edit_text(text)
+    except TelegramBadRequest:
+        pass
+
+
+@asynccontextmanager
+async def _status_tick(msg: Message, label_fn: Callable[[float], str]):
+    """긴 await 동안 status 메시지를 주기적으로 갱신한다.
+
+    label_fn(elapsed_sec)이 edit할 텍스트를 돌려준다.
+    """
+    start = time.monotonic()
+
+    async def _loop() -> None:
+        while True:
+            await asyncio.sleep(_TICK_INTERVAL_SEC)
+            elapsed = time.monotonic() - start
+            await _safe_edit(msg, label_fn(elapsed))
+
+    task = asyncio.create_task(_loop())
+    try:
+        yield
+    finally:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
+def _media_duration(message: Message) -> int | None:
+    for obj in (message.audio, message.voice, message.video, message.video_note):
+        if obj is not None and getattr(obj, "duration", None):
+            return int(obj.duration)
+    return None
+
+
+def _storage_rel_path(audio_path: Path, data_dir: Path) -> str:
+    """DATA_DIR 기준 상대 경로. 'data/260421/<slug>_raw.m4a' 같은 형태."""
+    try:
+        rel = audio_path.relative_to(data_dir)
+    except ValueError:
+        return str(audio_path)
+    return f"{data_dir.name}/{rel}"
 
 
 def _is_allowed(message: Message, config: Config) -> bool:
@@ -144,17 +200,40 @@ async def handle_media(
     slug = build_slug(caption=caption, original_filename=file_name, record_id=rec_id)
     db.set_slug(rec_id, slug)
 
-    await message.answer(fmt.received_message(rec_id, file_name, file_size))
+    audio_path = fs.audio_path(recording_date, slug, suffix)
+
+    # 1) 받음 알림: 메타와 저장 경로를 바로 보여준다.
+    await message.answer(
+        fmt.received_message(
+            rec_id,
+            file_name,
+            file_size,
+            duration_sec=_media_duration(message),
+            storage_rel_path=_storage_rel_path(audio_path, config.data_dir),
+        )
+    )
+
+    # 2) 상태 메시지 하나를 edit 방식으로 이어간다. 채팅이 지저분해지지 않도록.
+    status_msg = await message.answer(fmt.status_downloading())
 
     try:
-        audio_path = fs.audio_path(recording_date, slug, suffix)
         logger.info("다운로드 시작: %s -> %s", tg_file_id, audio_path)
-        await bot.download(tg_file_id, destination=audio_path)
+        t0 = time.monotonic()
+        async with _status_tick(status_msg, fmt.status_downloading):
+            await bot.download(tg_file_id, destination=audio_path)
+        await _safe_edit(status_msg, fmt.status_downloaded(time.monotonic() - t0))
+
         db.set_audio_path(rec_id, audio_path)
         db.set_processing(rec_id)
 
-        result = await transcribe_audio(audio_path)
+        await _safe_edit(status_msg, fmt.status_transcribing())
+        t0 = time.monotonic()
+        async with _status_tick(status_msg, fmt.status_transcribing):
+            result = await transcribe_audio(audio_path)
+        transcribe_elapsed = time.monotonic() - t0
+        await _safe_edit(status_msg, fmt.status_transcribed(transcribe_elapsed, result))
 
+        await _safe_edit(status_msg, fmt.status_exporting())
         frontmatter = _build_frontmatter(
             rec_id=rec_id,
             slug=slug,
@@ -174,12 +253,15 @@ async def handle_media(
             raw_json_path=paths["raw"],
         )
 
+        await _safe_edit(status_msg, fmt.status_sending())
         await message.answer(fmt.completed_message(rec_id, result, caption=caption))
         for key in ("srt", "md", "txt"):
             await message.answer_document(FSInputFile(paths[key]))
+        await _safe_edit(status_msg, fmt.status_all_done())
     except Exception as exc:
         logger.exception("처리 실패: %s", rec_id)
         db.fail(rec_id, str(exc))
+        await _safe_edit(status_msg, fmt.status_all_done())
         await message.answer(fmt.failed_message(rec_id, str(exc)))
 
 
