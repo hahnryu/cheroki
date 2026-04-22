@@ -22,7 +22,7 @@
   - 6자리 Crockford base32 short ID
 - **Naming 모듈**
   - 캡션에서 날짜(YYMMDD / YYYY-MM-DD / YYYY.MM.DD 등) 자동 추출
-  - 한글/한자 → unidecode로 romanize → ASCII 슬러그
+  - 캡션 기반 슬러그 생성. 한글·영문 그대로 유지, 파일시스템 금지 문자만 제거 (2026-04-22부터)
   - `_raw` 접미어로 1차 채록 산출물 표시 (후속 모듈은 `_edited`, `_named` 등)
 - **Telegram 봇** (`@cheroki_siltarebot`, aiogram v3)
   - `/start`, `/help`, `/last`, `/get <id>`, `/status <id>` 명령어

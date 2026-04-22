@@ -1,18 +1,16 @@
-"""캡션 파싱, 날짜 추출, romanize, 파일명 슬러그 생성.
+"""캡션 파싱, 날짜 추출, 파일명 슬러그 생성.
 
 철학: cheroki의 raw 산출물은 self-describing 파일명을 가진다. Short ID는 SQLite
 내부 키로만 살아있고, 파일시스템에는 사람이 보자마자 읽을 수 있는 이름이 쌓인다.
 
-이후 교정/이름지정 모듈들이 이 폴더 구조 위에서 작동할 것이므로, 네이밍 규약을
-가능한 한 단순·안정적으로 유지한다.
+한글은 그대로 유지한다(romanize 하지 않는다). 파일시스템 안전성(금지 문자 제거,
+공백 처리)만 보장한다.
 """
 from __future__ import annotations
 
 import re
 from datetime import date, datetime
 from pathlib import Path
-
-from unidecode import unidecode
 
 _DATE_PATTERNS = [
     # 2026-04-20, 2026.04.20, 2026/04/20, 2026 04 20
@@ -56,17 +54,23 @@ def strip_date_from_caption(caption: str) -> str:
     return re.sub(r"\s+", " ", result).strip(" ·,-_/")
 
 
-def romanize(text: str) -> str:
-    """한글·기타 유니코드 → ASCII 슬러그. 소문자, 단어 구분은 `_`."""
+_UNSAFE_CHARS = re.compile(r'[/\\:*?"<>|\x00-\x1f]')
+_WS = re.compile(r"\s+")
+
+
+def safe_slug(text: str) -> str:
+    """파일시스템 안전 슬러그. 한글·영문·숫자·대시·점은 유지.
+
+    - 파일시스템 금지 문자(/, \\, :, *, ?, ", <, >, |) 제거
+    - 제어 문자 제거
+    - 연속 공백 단일화 후 공백을 언더스코어로
+    - 앞뒤 언더스코어 정리
+    """
     if not text:
         return ""
-    ascii_text = unidecode(text)
-    ascii_text = ascii_text.lower()
-    # 영숫자와 몇몇 구분문자만 남기고 공백으로
-    ascii_text = re.sub(r"[^a-z0-9]+", " ", ascii_text)
-    # 연속 공백 → 단일 `_`
-    slug = "_".join(ascii_text.split())
-    return slug.strip("_")
+    cleaned = _UNSAFE_CHARS.sub("", text)
+    cleaned = _WS.sub(" ", cleaned).strip()
+    return cleaned.replace(" ", "_").strip("_")
 
 
 def build_slug(
@@ -76,11 +80,11 @@ def build_slug(
     record_id: str,
     max_length: int = 60,
 ) -> str:
-    """파일명 슬러그 생성.
+    """파일명 슬러그 생성. 한글은 그대로 유지.
 
     우선순위:
-    1. 캡션에서 날짜 제거한 나머지 (romanize)
-    2. 원본 파일명 (확장자 제외, romanize)
+    1. 캡션에서 날짜 제거한 나머지
+    2. 원본 파일명 (확장자 제외)
     3. short ID (fallback)
 
     제네릭한 Telegram 기본 파일명(`voice_21`, `audio`, `doc_N`)은 2단계에서 건너뜀.
@@ -89,16 +93,16 @@ def build_slug(
 
     if caption:
         stripped = strip_date_from_caption(caption)
-        rom = romanize(stripped)
-        if rom:
-            candidates.append(rom)
+        slug = safe_slug(stripped)
+        if slug:
+            candidates.append(slug)
 
     if original_filename:
         stem = Path(original_filename).stem
         if not _is_generic_filename(stem):
-            rom = romanize(stem)
-            if rom:
-                candidates.append(rom)
+            slug = safe_slug(stem)
+            if slug:
+                candidates.append(slug)
 
     candidates.append(record_id)
 

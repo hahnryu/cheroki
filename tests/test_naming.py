@@ -6,25 +6,33 @@ from cheroki.naming import (
     build_slug,
     file_format_from_name,
     parse_recording_date,
-    romanize,
+    safe_slug,
     session_folder_name,
     strip_date_from_caption,
 )
 
 
-def test_romanize_korean():
-    assert romanize("아버님 morning walk") == "abeonim_morning_walk"
+def test_safe_slug_keeps_korean():
+    assert safe_slug("아버님 morning walk") == "아버님_morning_walk"
 
 
-def test_romanize_empty_and_punct():
-    assert romanize("") == ""
-    assert romanize("---") == ""
-    assert romanize("하회!부용대") == "ha_hoe_bu_yongdae" or romanize("하회!부용대")  # 느슨: 비어있지만 않으면 OK
+def test_safe_slug_empty():
+    assert safe_slug("") == ""
+    assert safe_slug("   ") == ""
 
 
-def test_romanize_lowercase_and_underscore():
-    out = romanize("HAHOE Village, 2026")
-    assert out == "hahoe_village_2026"
+def test_safe_slug_removes_filesystem_unsafe_chars():
+    assert safe_slug("파일/이름") == "파일이름"
+    assert safe_slug('a:b*c?d"e<f>g|h') == "abcdefgh"
+
+
+def test_safe_slug_collapses_whitespace():
+    assert safe_slug("하회  마을    보존회") == "하회_마을_보존회"
+
+
+def test_safe_slug_preserves_case_and_punct():
+    # 대소문자 유지, 콤마·점·대시 유지
+    assert safe_slug("HAHOE Village, 2026.04") == "HAHOE_Village,_2026.04"
 
 
 def test_parse_date_yymmdd():
@@ -60,8 +68,9 @@ def test_strip_date_from_caption():
 
 def test_build_slug_from_caption():
     slug = build_slug(caption="아버님 morning walk 260420 하회", original_filename=None, record_id="ab7f3c")
-    assert "abeonim" in slug
+    assert "아버님" in slug
     assert "morning_walk" in slug
+    assert "하회" in slug
     assert "260420" not in slug  # 날짜는 폴더로 빠짐
 
 
@@ -82,7 +91,7 @@ def test_build_slug_fallback_to_record_id():
 
 
 def test_build_slug_length_cap():
-    long = "a" * 100
+    long = "가" * 100
     slug = build_slug(caption=long, original_filename=None, record_id="ab7f3c", max_length=60)
     assert len(slug) <= 60
 

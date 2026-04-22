@@ -41,7 +41,7 @@ DATA_DIR/
 └── siltare.db
 ```
 
-`<slug>`는 캡션 또는 원본 파일명을 romanize한 ASCII 슬러그. 없으면 short ID(6자리).
+`<slug>`는 캡션 또는 원본 파일명 기반. 한글·영문 그대로 유지하고 파일시스템 금지 문자만 제거한다. 없으면 short ID(6자리).
 
 ## 설치
 
@@ -163,7 +163,7 @@ cheroki/
 │   ├── interfaces/
 │   │   ├── cli.py           cheroki 명령어
 │   │   └── telegram/        aiogram v3 봇 (Local API 2GB 모드 지원)
-│   ├── naming.py            캡션 파싱, romanize, 슬러그
+│   ├── naming.py            캡션 파싱, 슬러그 (한글 유지)
 │   ├── migrate.py           구 레이아웃 → 신 레이아웃
 │   └── config.py            .env 로딩
 ├── scripts/                 compare_providers, announce

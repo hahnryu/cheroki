@@ -30,13 +30,13 @@ DATA_DIR/
 ```
 
 - `YYMMDD`: 녹음 날짜(캡션에서 추출 > Telegram 수신 시각 > 파일 mtime > today).
-- `<slug>`: 캡션/원본 파일명을 romanize한 ASCII 슬러그. 없으면 short ID(6자리 Crockford base32).
+- `<slug>`: 캡션/원본 파일명 기반. 한글·영문 그대로 유지. 파일시스템 금지 문자만 제거, 공백은 `_`. 없으면 short ID(6자리 Crockford base32).
 - `_raw` 접미어: 1차 채록 산출물임을 표시. 교정본은 `_edited`, 이름지정본은 `_named` 등 다른 접미어 사용.
 
 ## 코드 규칙
 
 1. **Python 3.11+**, async/await 통일, 타입 힌트 필수
-2. **aiogram v3** (python-telegram-bot 금지), httpx, python-dotenv, unidecode
+2. **aiogram v3** (python-telegram-bot 금지), httpx, python-dotenv
 3. **표준 logging** (structlog 안 씀). 모듈마다 `logger = logging.getLogger(__name__)`
 4. **em-dash(—) 금지**. 콤마, 콜론, 괄호, 줄바꿈으로 대체
 5. **설정은 .env로**. `config.yaml` 금지 (레거시 유물). 로딩은 `cheroki.config.load_config()`
@@ -50,7 +50,7 @@ DATA_DIR/
 src/cheroki/
 ├── __init__.py              공개 API (transcribe_audio, TranscriptionResult, Utterance)
 ├── config.py                .env 로딩
-├── naming.py                캡션 파싱, romanize, 슬러그 생성, 세션 폴더명
+├── naming.py                캡션 파싱, 슬러그 생성 (한글 유지), 세션 폴더명
 ├── migrate.py               레이아웃 마이그레이션 (구버전 → 신버전)
 │
 ├── core/                    순수 라이브러리 (인터페이스/저장 독립)
