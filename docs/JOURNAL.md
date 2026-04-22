@@ -181,6 +181,43 @@ DATA_DIR/YYMMDD/<slug>_raw.{m4a,srt,md,txt,json}
 
 ---
 
+## 2026-04-22 — cenote 통합 논의 + 파일명 한글화
+
+**세션 초중반**: cenote(사용자 개인 vault + 보리 에이전트) 통합 설계. 세 갈래로 정리됨.
+
+1. **저장 경로 통합**: cheroki의 `DATA_DIR`을 `~/cenote/10_fragments/`로 직접 지정하는 방향. 폴더 포맷 `YYYYMMDD(요일)`, 파일명에 날짜 필수. `.env`로 옵션화해서 cheroki 자체 범용성은 유지.
+2. **Scribe keyterms = cenote memory**: `nightly_distill`이 `30_memory/`를 스캔해 `90_minions/index/keyterms.txt` 생성, cheroki가 매 전사마다 주입. 정적 파일 방식.
+3. **`/review` skill**: `_raw.md`는 영구 보존, 보리가 대화형으로 교정해 `_edited.md` 생성. cheroki 무변경, 보리 쪽 skill.
+
+추가 논의: cheroki 봇 프로세스 중지하고 cenotebot(Telegram 창구)이 cheroki 라이브러리 직접 호출하는 통합안. Local Bot API라 2GB 처리에도 영향 없음. 결정 유보.
+
+"복잡하다"는 사용자 판단으로 **cenote 통합 전체를 보류**. 보리 전달용 통합 인계문(자기소개 + 의도 정리 + 시방서)만 작성해두고 실제 전달은 안 함. 나중에 재개 시점에 활용.
+
+### 저녁 세션: 파일명 한글화 (단일 작업)
+
+**배경**: 영문 romanize 슬러그(`0420_bonadaehwa`)가 캡션 원문(`0420 보나대화`)과 대조해 읽기 어려움. 단순 변경으로.
+
+**구현**:
+- `src/cheroki/naming.py` — `romanize()` 제거, `safe_slug()` 신설. 파일시스템 금지 문자(`/ \ : * ? " < > |` + 제어문자)만 제거하고 한글·영문·숫자는 유지. 공백은 기존처럼 언더스코어.
+- `unidecode` 의존성 제거 (pyproject.toml).
+- 테스트 한글 기대값으로 교체. 54개 통과(+3-3).
+- SQLite `romanized_slug` 컬럼명은 잔재로 유지(내용만 한글로 바뀜). 스키마 리네임은 과잉.
+- CLAUDE.md·README.md·CHANGELOG.md 관련 언급 갱신. 과거 JOURNAL은 그대로.
+
+**예**:
+```
+기존: 0420_bonadaehwa_raw.m4a
+신규: 0420_보나대화_raw.m4a
+```
+
+**배포**: 서버 코드 갱신 + 봇 재시작(PID 50398). editable install이라 즉시 반영. Local Bot API 2GB 모드 유지.
+
+**커밋**: `f107ce5` (+ 푸시 완료).
+
+**남은 관심**: cheroki 봇 관련 운영 지식을 `cenote/90_minions/bots/cheroki/`에 **SOUL.md / operations.md / integration.md** 형태로 두는 구조 제안만 해둠. 코드·데이터는 `~/projects/cheroki/` 그대로. 구현은 cenote 통합 논의 재개 시에.
+
+---
+
 ## 로드맵 (요약)
 
 - **Phase 1 (끝남)**: MVP — 전사 + SRT/MD/TXT + Telegram 봇 + CLI + 네이밍 규약
